@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Node.js Backend API
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - PYTHON_VIDEO_SERVICE_URL=http://video-analysis:8001
+      - PYTHON_AUDIO_SERVICE_URL=http://audio-analysis:8002
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - video-analysis
+      - audio-analysis
+    networks:
+      - hireprep-network
+
+  # Python Video Analysis Service
+  video-analysis:
+    build:
+      context: ./python-services
+      dockerfile: Dockerfile.video
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - FLASK_ENV=development
+    networks:
+      - hireprep-network
+
+  # Python Audio Analysis Service
+  audio-analysis:
+    build:
+      context: ./python-services
+      dockerfile: Dockerfile.audio
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - FLASK_ENV=development
+    networks:
+      - hireprep-network
+
+networks:
+  hireprep-network:
+    driver: bridge
+
+volumes:
+  node_modules:

@@ -1,0 +1,30 @@
+const express = require('express');
+const {
+  uploadResume,
+  getResume,
+  getMyResume,
+  updateResumeData,
+  deleteResume,
+  analyzeResumeForJob,
+  getResumeAnalytics
+} = require('../controllers/resumeController');
+const { authenticate, authorize } = require('../middlewares/authMiddleware');
+const { upload } = require('../utils/helpers');
+
+const router = express.Router();
+
+// All routes require authentication
+router.use(authenticate);
+
+// Resume management routes
+router.post('/upload', authorize('student'), upload.single('resume'), uploadResume);
+router.get('/my-resume', authorize('student'), getMyResume);
+router.get('/:userId', getResume); // Accessible by student (own) or company
+router.put('/update-data', authorize('student'), updateResumeData);
+router.delete('/delete', authorize('student'), deleteResume);
+
+// Analysis routes
+router.get('/analyze/job/:jobId', authorize('student'), analyzeResumeForJob);
+router.get('/analytics/my-resume', authorize('student'), getResumeAnalytics);
+
+module.exports = router;

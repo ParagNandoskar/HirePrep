@@ -1,0 +1,15 @@
+# Python dependencies for AI microservices
+flask==2.3.2
+flask-cors==4.0.0
+numpy==1.24.3
+opencv-python==4.8.0.74
+mediapipe==0.10.1
+librosa==0.10.1
+scikit-learn==1.3.0
+scipy==1.11.1
+
+# Optional dependencies for enhanced functionality
+# deepface==0.0.79  # Uncomment for advanced emotion analysis
+# speechrecognition==3.10.0  # Uncomment for speech recognition
+# pydub==0.25.1  # Uncomment for audio format conversion
+# transformers==4.21.0  # Uncomment for advanced NLP/sentiment analysis
