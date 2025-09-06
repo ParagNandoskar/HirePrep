@@ -62,14 +62,25 @@ export const verifyToken = createAsyncThunk(
         return rejectWithValue('No token found');
       }
       
+      // Set authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      // Make verification request
       const response = await axios.post('/api/auth/verify-token');
       
       return response.data.user;
     } catch (error) {
-      localStorage.removeItem('token');
-      delete axios.defaults.headers.common['Authorization'];
-      return rejectWithValue('Token verification failed');
+      // Only clear token if it's actually invalid (401/403), not for rate limits (429)
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        localStorage.removeItem('token');
+        delete axios.defaults.headers.common['Authorization'];
+      }
+      
+      const message = error.response?.status === 429 
+        ? 'Rate limit exceeded. Please wait a moment.' 
+        : 'Token verification failed';
+        
+      return rejectWithValue(message);
     }
   }
 );
@@ -140,11 +151,14 @@ const authSlice = createSlice({
         state.user = action.payload;
         state.error = null;
       })
-      .addCase(verifyToken.rejected, (state) => {
+      .addCase(verifyToken.rejected, (state, action) => {
         state.loading = false;
-        state.user = null;
-        state.token = null;
-        state.error = null;
+        // Only clear user/token if it's actually invalid, not for rate limits
+        if (action.payload !== 'Rate limit exceeded. Please wait a moment.') {
+          state.user = null;
+          state.token = null;
+        }
+        state.error = action.payload;
       });
 
     // Logout

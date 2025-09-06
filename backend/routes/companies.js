@@ -338,4 +338,147 @@ router.put('/candidates/:candidateId/status', authenticateToken, authorizeRole('
   }
 });
 
+// @route   GET /api/companies/stats
+// @desc    Get company statistics
+// @access  Private (Company only)
+router.get('/stats', authenticateToken, authorizeRole('company'), async (req, res) => {
+  try {
+    const company = await Company.findOne({ user: req.user._id });
+    
+    if (!company) {
+      return res.status(404).json({ message: 'Company profile not found' });
+    }
+
+    // Get company's job statistics
+    const jobs = await Job.find({ company: company._id });
+    
+    // Calculate application statistics
+    const totalApplications = jobs.reduce((acc, job) => acc + job.applications.length, 0);
+    const shortlistedApplications = jobs.reduce((acc, job) => 
+      acc + job.applications.filter(app => app.status === 'shortlisted').length, 0
+    );
+
+    const stats = {
+      totalJobs: jobs.filter(job => job.status === 'active').length,
+      totalApplications,
+      shortlistedCandidates: shortlistedApplications
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Get company stats error:', error);
+    res.status(500).json({ message: 'Failed to fetch stats' });
+  }
+});
+
+// @route   GET /api/companies/applications
+// @desc    Get recent applications for company's jobs
+// @access  Private (Company only)
+router.get('/applications', authenticateToken, authorizeRole('company'), async (req, res) => {
+  try {
+    const company = await Company.findOne({ user: req.user._id });
+    
+    if (!company) {
+      return res.status(404).json({ message: 'Company profile not found' });
+    }
+
+    // Get recent applications
+    const jobs = await Job.find({ company: company._id })
+      .populate({
+        path: 'applications.candidate',
+        select: 'firstName lastName email'
+      })
+      .sort({ createdAt: -1 });
+
+    const applications = [];
+    jobs.forEach(job => {
+      job.applications
+        .sort((a, b) => new Date(b.appliedDate) - new Date(a.appliedDate))
+        .forEach(app => {
+          applications.push({
+            _id: app._id,
+            candidate: app.candidate,
+            job: {
+              _id: job._id,
+              title: job.title
+            },
+            appliedDate: app.appliedDate,
+            status: app.status,
+            matchScore: app.matchScore
+          });
+        });
+    });
+
+    // Sort by application date and limit to recent ones
+    applications.sort((a, b) => new Date(b.appliedDate) - new Date(a.appliedDate));
+
+    res.json({ applications: applications.slice(0, 20) });
+  } catch (error) {
+    console.error('Get company applications error:', error);
+    res.status(500).json({ message: 'Failed to fetch applications' });
+  }
+});
+
+// @route   PATCH /api/companies/applications/:applicationId
+// @desc    Update application status
+// @access  Private (Company only)
+router.patch('/applications/:applicationId', authenticateToken, authorizeRole('company'), async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { status } = req.body;
+
+    const company = await Company.findOne({ user: req.user._id });
+    if (!company) {
+      return res.status(404).json({ message: 'Company profile not found' });
+    }
+
+    // Find the job with this application
+    const job = await Job.findOne({
+      company: company._id,
+      'applications._id': applicationId
+    });
+
+    if (!job) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    // Update the application status
+    const applicationIndex = job.applications.findIndex(
+      app => app._id.toString() === applicationId
+    );
+
+    if (applicationIndex === -1) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    job.applications[applicationIndex].status = status;
+    job.applications[applicationIndex].reviewedBy = req.user._id;
+    job.applications[applicationIndex].reviewDate = new Date();
+
+    await job.save();
+
+    // Also update in candidate's jobApplications
+    const candidateId = job.applications[applicationIndex].candidate;
+    await Candidate.updateOne(
+      { 
+        _id: candidateId,
+        'jobApplications.job': job._id 
+      },
+      {
+        $set: {
+          'jobApplications.$.status': status
+        }
+      }
+    );
+
+    res.json({
+      message: 'Application status updated successfully',
+      application: job.applications[applicationIndex]
+    });
+  } catch (error) {
+    console.error('Update application status error:', error);
+    res.status(500).json({ message: 'Failed to update application status' });
+  }
+});
+
 module.exports = router;

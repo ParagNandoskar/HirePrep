@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Building, MapPin, Clock, DollarSign, Users, Eye, Edit, Trash2 } from 'lucide-react';
 
 const CompanyDashboard = () => {
   const { user } = useSelector((state) => state.auth);
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
   const [stats, setStats] = useState({
@@ -20,13 +22,13 @@ const CompanyDashboard = () => {
 
   const fetchJobs = async () => {
     try {
-      const response = await fetch('/api/companies/jobs', {
+      const response = await fetch('/api/jobs/company/my-jobs', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       const data = await response.json();
-      setJobs(data);
+      setJobs(data.jobs || []);
     } catch (error) {
       console.error('Error fetching jobs:', error);
     }
@@ -40,7 +42,8 @@ const CompanyDashboard = () => {
         }
       });
       const data = await response.json();
-      setApplications(data);
+      setApplications(Array.isArray(data.applications) ? data.applications : (Array.isArray(data) ? data : []));
+      // This handles both { applications: [...] } and [...] or fallback to []
     } catch (error) {
       console.error('Error fetching applications:', error);
     }
@@ -74,11 +77,16 @@ const CompanyDashboard = () => {
       });
 
       if (response.ok) {
+        alert('Job deleted successfully!');
         fetchJobs();
         fetchStats();
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to delete job: ${errorData.message || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error deleting job:', error);
+      alert('Network error. Please try again.');
     }
   };
 
@@ -102,8 +110,28 @@ const CompanyDashboard = () => {
     }
   };
 
+  const formatLocation = (location) => {
+    if (typeof location === 'string') {
+      return location;
+    }
+    if (location && typeof location === 'object') {
+      const parts = [location.city, location.state, location.country].filter(Boolean);
+      return parts.length > 0 ? parts.join(', ') : location.type || 'Not specified';
+    }
+    return 'Not specified';
+  };
+
   const formatSalary = (salary) => {
-    return salary >= 1000 ? `$${(salary / 1000).toFixed(0)}k` : `$${salary}`;
+    // Handle both direct salary number and salary range object
+    if (typeof salary === 'number') {
+      return salary >= 1000 ? `$${(salary / 1000).toFixed(0)}k` : `$${salary}`;
+    }
+    if (salary && typeof salary === 'object' && salary.min && salary.max) {
+      const min = salary.min >= 1000 ? `$${(salary.min / 1000).toFixed(0)}k` : `$${salary.min}`;
+      const max = salary.max >= 1000 ? `$${(salary.max / 1000).toFixed(0)}k` : `$${salary.max}`;
+      return `${min} - ${max}`;
+    }
+    return 'Not specified';
   };
 
   const formatDate = (date) => {
@@ -125,7 +153,7 @@ const CompanyDashboard = () => {
               </p>
             </div>
             <button
-              onClick={() => window.location.href = '/company/jobs/new'}
+              onClick={() => navigate('/company/post-job')}
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -212,7 +240,7 @@ const CompanyDashboard = () => {
                     Get started by creating your first job posting.
                   </p>
                   <button
-                    onClick={() => window.location.href = '/company/jobs/new'}
+                    onClick={() => navigate('/company/post-job')}
                     className="mt-3 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
                   >
                     <Plus className="h-4 w-4 mr-1" />
@@ -230,9 +258,9 @@ const CompanyDashboard = () => {
                           </h3>
                           <div className="mt-1 flex items-center text-xs text-gray-500">
                             <MapPin className="h-3 w-3 mr-1" />
-                            <span className="mr-3">{job.location}</span>
+                            <span className="mr-3">{formatLocation(job.location)}</span>
                             <DollarSign className="h-3 w-3 mr-1" />
-                            <span className="mr-3">{formatSalary(job.salary)}</span>
+                            <span className="mr-3">{formatSalary(job.compensation?.salaryRange || job.salary)}</span>
                             <Clock className="h-3 w-3 mr-1" />
                             <span>{formatDate(job.postedDate)}</span>
                           </div>
@@ -243,21 +271,22 @@ const CompanyDashboard = () => {
                             <span className={`ml-3 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                               job.status === 'active' ? 'bg-green-100 text-green-800' :
                               job.status === 'closed' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
+                              job.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
                             }`}>
-                              {job.status}
+                              {job.status || 'draft'}
                             </span>
                           </div>
                         </div>
                         <div className="flex items-center space-x-2 ml-4">
                           <button
-                            onClick={() => window.location.href = `/company/jobs/${job._id}`}
+                            onClick={() => navigate(`/company/jobs/${job._id}`)}
                             className="text-blue-600 hover:text-blue-800"
                           >
                             <Eye className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => window.location.href = `/company/jobs/${job._id}/edit`}
+                            onClick={() => navigate(`/company/jobs/${job._id}/edit`)}
                             className="text-gray-600 hover:text-gray-800"
                           >
                             <Edit className="h-4 w-4" />
@@ -299,7 +328,7 @@ const CompanyDashboard = () => {
                         <div className="flex-1">
                           <div className="flex items-center">
                             <h3 className="text-sm font-medium text-gray-900">
-                              {application.candidate.firstName} {application.candidate.lastName}
+                              {application.candidate?.firstName || 'Unknown'} {application.candidate?.lastName || 'User'}
                             </h3>
                             <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                               application.status === 'applied' ? 'bg-blue-100 text-blue-800' :
@@ -307,11 +336,11 @@ const CompanyDashboard = () => {
                               application.status === 'shortlisted' ? 'bg-green-100 text-green-800' :
                               'bg-red-100 text-red-800'
                             }`}>
-                              {application.status}
+                              {application.status || 'applied'}
                             </span>
                           </div>
                           <p className="text-sm text-gray-600">
-                            Applied for: {application.job.title}
+                            Applied for: {application.job?.title || 'Unknown Position'}
                           </p>
                           <p className="text-xs text-gray-500">
                             {formatDate(application.appliedDate)}

@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
 import { MapPin, DollarSign, Clock, Building, Users, Tag } from 'lucide-react';
 
-const PostJob = () => {
+const EditJob = () => {
+  const { id } = useParams();
   const { user } = useSelector((state) => state.auth);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [jobLoading, setJobLoading] = useState(true);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -19,6 +21,65 @@ const PostJob = () => {
     department: '',
     benefits: ''
   });
+
+  useEffect(() => {
+    fetchJobData();
+  }, [id]);
+
+  const fetchJobData = async () => {
+    try {
+      setJobLoading(true);
+      const response = await fetch(`/api/jobs/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        const jobData = await response.json();
+        
+        // Transform backend data to form format
+        setFormData({
+          title: jobData.title || '',
+          description: jobData.description || '',
+          requirements: Array.isArray(jobData.requirements?.skills) 
+            ? jobData.requirements.skills.map(skill => skill.name || skill).join('\n')
+            : '',
+          location: formatLocationForEdit(jobData.location),
+          jobType: jobData.jobDetails?.type || 'full-time',
+          experienceLevel: jobData.jobDetails?.level || 'mid',
+          salary: jobData.compensation?.salaryRange?.min || jobData.salary || '',
+          skills: Array.isArray(jobData.requirements?.skills)
+            ? jobData.requirements.skills.map(skill => skill.name || skill).join(', ')
+            : '',
+          department: jobData.jobDetails?.department || '',
+          benefits: Array.isArray(jobData.compensation?.benefits)
+            ? jobData.compensation.benefits.join('\n')
+            : ''
+        });
+      } else {
+        alert('Failed to load job data');
+        navigate('/company/dashboard');
+      }
+    } catch (error) {
+      console.error('Error fetching job:', error);
+      alert('Error loading job data');
+      navigate('/company/dashboard');
+    } finally {
+      setJobLoading(false);
+    }
+  };
+
+  const formatLocationForEdit = (location) => {
+    if (typeof location === 'string') {
+      return location;
+    }
+    if (location && typeof location === 'object') {
+      const parts = [location.city, location.state, location.country].filter(Boolean);
+      return parts.length > 0 ? parts.join(', ') : location.type || '';
+    }
+    return '';
+  };
 
   const handleChange = (e) => {
     setFormData({
@@ -67,8 +128,8 @@ const PostJob = () => {
         },
         compensation: {
           salaryRange: {
-            min: parseInt(formData.salary) * 0.9, // 10% below for range
-            max: parseInt(formData.salary) * 1.1, // 10% above for range
+            min: parseInt(formData.salary) * 0.9,
+            max: parseInt(formData.salary) * 1.1,
             currency: 'USD'
           },
           benefits: benefitsArray,
@@ -79,14 +140,11 @@ const PostJob = () => {
           city: formData.location.includes(',') ? formData.location.split(',')[0].trim() : formData.location,
           state: formData.location.includes(',') ? formData.location.split(',')[1]?.trim() : '',
           country: 'USA'
-        },
-        status: 'active'
+        }
       };
 
-      console.log('Sending job data:', jobData); // Debug log
-
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
+      const response = await fetch(`/api/jobs/${id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -95,31 +153,41 @@ const PostJob = () => {
       });
 
       const responseData = await response.json();
-      console.log('Response:', responseData); // Debug log
 
       if (response.ok) {
-        alert('Job posted successfully!');
+        alert('Job updated successfully!');
         navigate('/company/dashboard');
       } else {
-        console.error('Error posting job:', responseData);
-        alert(`Error: ${responseData.message || 'Failed to post job'}`);
+        console.error('Error updating job:', responseData);
+        alert(`Error: ${responseData.message || 'Failed to update job'}`);
       }
     } catch (error) {
-      console.error('Error posting job:', error);
+      console.error('Error updating job:', error);
       alert('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  if (jobLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading job data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="px-4 py-6 sm:px-0">
-          <h1 className="text-3xl font-bold text-gray-900">Post a New Job</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Edit Job Posting</h1>
           <p className="mt-2 text-gray-600">
-            Create a job posting to attract qualified candidates
+            Update your job posting details
           </p>
         </div>
 
@@ -352,7 +420,7 @@ Remote work options"
                 disabled={loading}
                 className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Posting...' : 'Post Job'}
+                {loading ? 'Updating...' : 'Update Job'}
               </button>
             </div>
           </form>
@@ -362,4 +430,4 @@ Remote work options"
   );
 };
 
-export default PostJob;
+export default EditJob;

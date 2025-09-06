@@ -10,6 +10,8 @@ import CandidateDashboard from './pages/Candidate/CandidateDashboard';
 import CandidateJobs from './pages/Candidate/CandidateJobs';
 import CompanyDashboard from './pages/Company/CompanyDashboard';
 import PostJob from './pages/Company/PostJob';
+import EditJob from './pages/Company/EditJob';
+import ViewJob from './pages/Company/ViewJob';
 import Jobs from './pages/Jobs/Jobs';
 import ProtectedRoute from './components/Common/ProtectedRoute';
 import LoadingSpinner from './components/Common/LoadingSpinner';
@@ -19,10 +21,10 @@ function App() {
   const { user, loading, token } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    if (token) {
+    if (token && !user) {
       dispatch(verifyToken());
     }
-  }, [dispatch, token]);
+  }, [dispatch, token, user]);
 
   if (loading) {
     return <LoadingSpinner />;
@@ -84,6 +86,26 @@ function App() {
           <ProtectedRoute allowedRoles={['company']}>
             <Layout>
               <PostJob />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/company/jobs/:id"
+        element={
+          <ProtectedRoute allowedRoles={['company']}>
+            <Layout>
+              <ViewJob />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/company/jobs/:id/edit"
+        element={
+          <ProtectedRoute allowedRoles={['company']}>
+            <Layout>
+              <EditJob />
             </Layout>
           </ProtectedRoute>
         }
