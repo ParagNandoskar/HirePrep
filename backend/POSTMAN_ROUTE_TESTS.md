@@ -109,7 +109,7 @@ This document lists all major backend API routes for manual testing in Postman. 
 - **Body:**
 ```json
 {
-  "oldPassword": "yourpassword",
+  "currentPassword": "yourpassword",
   "newPassword": "newpassword"
 }
 ```
