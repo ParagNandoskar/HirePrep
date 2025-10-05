@@ -1,82 +1,8 @@
 // Scoring utilities for various assessments
 
-// Calculate resume-job match score
-const calculateResumeJobMatch = (resumeSkills, jobSkills) => {
-  if (!resumeSkills || !jobSkills || jobSkills.length === 0) return 0;
-
-  const resumeSkillNames = resumeSkills.map(skill => skill.name.toLowerCase());
-  let totalScore = 0;
-  let maxScore = 0;
-
-  jobSkills.forEach(jobSkill => {
-    const weight = jobSkill.required ? 2 : 1;
-    maxScore += weight;
-
-    const hasSkill = resumeSkillNames.includes(jobSkill.name.toLowerCase());
-    if (hasSkill) {
-      const resumeSkill = resumeSkills.find(rs => 
-        rs.name.toLowerCase() === jobSkill.name.toLowerCase()
-      );
-      
-      // Bonus for proficiency level
-      let proficiencyMultiplier = 1;
-      if (resumeSkill && resumeSkill.proficiency) {
-        switch (resumeSkill.proficiency.toLowerCase()) {
-          case 'expert': proficiencyMultiplier = 1.2; break;
-          case 'advanced': proficiencyMultiplier = 1.1; break;
-          case 'intermediate': proficiencyMultiplier = 1.0; break;
-          case 'beginner': proficiencyMultiplier = 0.8; break;
-          default: proficiencyMultiplier = 1.0;
-        }
-      }
-      
-      totalScore += weight * proficiencyMultiplier;
-    }
-  });
-
-  return maxScore > 0 ? Math.min(100, (totalScore / maxScore) * 100) : 0;
-};
-
-// Calculate experience match score
-const calculateExperienceMatch = (resumeExperience, jobRequirements) => {
-  if (!resumeExperience || !jobRequirements.experience) return 50;
-
-  const totalYears = resumeExperience.reduce((total, exp) => {
-    const startYear = new Date(exp.startDate).getFullYear();
-    const endYear = exp.endDate ? new Date(exp.endDate).getFullYear() : new Date().getFullYear();
-    return total + (endYear - startYear);
-  }, 0);
-
-  const { minYears = 0, maxYears = 10 } = jobRequirements.experience;
-  
-  if (totalYears < minYears) {
-    return Math.max(0, 50 - ((minYears - totalYears) * 10));
-  } else if (totalYears > maxYears) {
-    return Math.max(70, 100 - ((totalYears - maxYears) * 5));
-  } else {
-    return 100;
-  }
-};
-
-// Calculate education match score
-const calculateEducationMatch = (resumeEducation, jobEducation) => {
-  if (!resumeEducation || !jobEducation) return 50;
-
-  const hasRequiredDegree = resumeEducation.some(edu => 
-    edu.degree && edu.degree.toLowerCase().includes(jobEducation.degree.toLowerCase())
-  );
-
-  const hasRequiredField = resumeEducation.some(edu => 
-    edu.field && jobEducation.field && 
-    edu.field.toLowerCase().includes(jobEducation.field.toLowerCase())
-  );
-
-  let score = 50;
-  if (hasRequiredDegree) score += 30;
-  if (hasRequiredField) score += 20;
-
-  return Math.min(100, score);
-};
+// REMOVED: calculateResumeJobMatch (Now in Python NLP service)
+// REMOVED: calculateExperienceMatch (Now in Python NLP service)
+// REMOVED: calculateEducationMatch (Now in Python NLP service)
 
 // Calculate overall interview score
 const calculateInterviewScore = (videoScore, audioScore, qaScore) => {
@@ -137,9 +63,9 @@ const calculateConfidenceInterval = (scores, confidence = 0.95) => {
 };
 
 module.exports = {
-  calculateResumeJobMatch,
-  calculateExperienceMatch,
-  calculateEducationMatch,
+  // REMOVED: calculateResumeJobMatch,
+  // REMOVED: calculateExperienceMatch,
+  // REMOVED: calculateEducationMatch,
   calculateInterviewScore,
   calculateFinalScore,
   calculatePercentile,

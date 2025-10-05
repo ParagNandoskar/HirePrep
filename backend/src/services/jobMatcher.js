@@ -1,6 +1,7 @@
 const axios = require('axios'); // NEW: Add Axios for microservice communication
 const { getEmbeddingsModel } = require('../config/gemini');
-const { calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch } = require('../utils/scoring');
+// REMOVED: calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch imports
+// These functions are now handled by the Python NLP microservice
 
 const PYTHON_NLP_SERVICE_URL = 'http://localhost:5001'; // NEW: Python NLP microservice URL
 

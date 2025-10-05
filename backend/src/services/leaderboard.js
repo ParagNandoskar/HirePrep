@@ -1,4 +1,5 @@
-const { calculateResumeJobMatch, calculateInterviewScore, calculateFinalScore, calculatePercentile } = require('../utils/scoring');
+// REMOVED: calculateResumeJobMatch import (Now in Python NLP service)
+const { calculateInterviewScore, calculateFinalScore, calculatePercentile } = require('../utils/scoring');
 const Resume = require('../models/Resume');
 const Interview = require('../models/Interview');
 const Leaderboard = require('../models/Leaderboard');
@@ -99,12 +100,16 @@ class LeaderboardService {
     };
 
     try {
-      // Resume-Job Match Score
-      if (resume.parsedData && job.requirements) {
-        scores.resumeMatchScore = calculateResumeJobMatch(
-          resume.parsedData.skills,
-          job.requirements.skills
+      // Resume-Job Match Score - now comes from Python NLP service analysis
+      if (resume.parsedData && resume.parsedData.jobMatchScores) {
+        // Use pre-calculated job match score from Python NLP service
+        const jobMatchScore = resume.parsedData.jobMatchScores.find(score => 
+          score.jobId.toString() === job._id.toString()
         );
+        scores.resumeMatchScore = jobMatchScore ? jobMatchScore.overall : 0;
+      } else {
+        // Fallback: use a basic calculation if no Python NLP scores available
+        scores.resumeMatchScore = 50; // Default neutral score
       }
 
       // Video Analysis Score
