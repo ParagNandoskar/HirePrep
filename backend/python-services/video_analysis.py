@@ -16,6 +16,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mediapipe as mp
 import logging
+from deepface import DeepFace  # NEW: Import DeepFace
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,9 +37,16 @@ class VideoAnalyzer:
     Handles the analysis of individual video frames.
     """
     def __init__(self):
-        # A dictionary might be more useful for emotion mapping if you were using it
-        # self.emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
-        pass
+        logger.info("Initializing VideoAnalyzer and DeepFace Emotion Model...")
+        try:
+            # Load the DeepFace emotion model once
+            self.emotion_model = DeepFace.build_model("Emotion") 
+            self.emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
+            logger.info("DeepFace Emotion model loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load DeepFace model: {e}")
+            self.emotion_model = None
+            self.emotion_labels = []
 
     def analyze_frame(self, frame_data: str) -> dict | None:
         """
@@ -65,7 +73,7 @@ class VideoAnalyzer:
             
             # Analyze different aspects
             face_analysis = self._analyze_face(rgb_frame, frame)
-            emotion_analysis = self._analyze_emotions_simple()
+            emotion_analysis = self._analyze_emotions_deepface(frame)  # NEW: Use DeepFace analysis
             engagement_score = self._calculate_engagement(face_analysis)
             
             return {
@@ -158,32 +166,41 @@ class VideoAnalyzer:
             logger.error(f"Head pose estimation error: {e}", exc_info=True)
             return {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
     
-    def _analyze_emotions_simple(self) -> dict:
+    def _analyze_emotions_deepface(self, frame: np.ndarray) -> dict:
         """
-        Simple emotion analysis.
-        (Placeholder for DeepFace or other model integration.)
+        Analyzes emotion using the DeepFace model.
+        """
+        if not self.emotion_model:
+            return {'neutral': 100.0}
         
-        Returns:
-            dict: A dictionary of simulated emotion scores.
-        """
         try:
-            emotions = {
-                'happy': max(0, np.random.normal(60, 20)),
-                'neutral': max(0, np.random.normal(70, 15)),
-                'confident': max(0, np.random.normal(65, 18)),
-                'nervous': max(0, np.random.normal(25, 10)),
-                'engaged': max(0, np.random.normal(75, 12))
-            }
+            # DeepFace analyze expects BGR or RGB (we pass BGR)
+            # actions=['emotion'] forces it to only analyze emotion
+            analysis = DeepFace.analyze(
+                img_path=frame, 
+                actions=['emotion'], 
+                enforce_detection=False,  # Don't throw error if no face is found
+                models={'emotion': self.emotion_model}, 
+                detector_backend='mediapipe'  # Use MediaPipe detection
+            )
             
-            # Normalize scores to sum to 100
-            total = sum(emotions.values())
-            if total > 0:
-                return {k: (v / total) * 100 for k, v in emotions.items()}
+            if analysis and isinstance(analysis, list) and 'emotion' in analysis[0]:
+                emotions = analysis[0]['emotion']
+                
+                # Combine relevant emotions for a confidence metric
+                confidence_score = emotions.get('happy', 0) * 0.5 + emotions.get('neutral', 0) * 0.5
+                emotions['confident'] = confidence_score  # Add a synthesized confidence metric
+
+                # Normalize scores to sum to 100
+                total = sum(emotions.values())
+                if total > 0:
+                    return {k: v for k, v in emotions.items()}  # DeepFace returns raw percentages already
             
             return {'neutral': 100.0}
-            
+        
         except Exception as e:
-            logger.error(f"Emotion analysis error: {e}", exc_info=True)
+            # This often happens if no face is detected
+            logger.debug(f"DeepFace analysis failed (likely no face or small face): {e}") 
             return {'neutral': 100.0}
     
     def _calculate_engagement(self, face_analysis: dict) -> float:
