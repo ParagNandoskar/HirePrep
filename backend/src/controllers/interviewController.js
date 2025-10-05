@@ -53,7 +53,8 @@ const startInterview = asyncHandler(async (req, res) => {
         type: 'question',
         content: q.question,
         aiGenerated: true,
-        timestamp: new Date()
+        timestamp: new Date(),
+        questionId: q.id // Store the unique question ID for reliable lookup
       }))
     });
 
@@ -155,12 +156,11 @@ const submitAnswer = asyncHandler(async (req, res) => {
       timestamp: new Date()
     });
 
-    // Find the corresponding question
-    const questionIndex = interview.conversation.findIndex(
-      msg => msg.type === 'question' && msg.content.includes(questionId)
+    // Find the corresponding question using reliable questionId lookup
+    const questionMessage = interview.conversation.find(
+      msg => msg.type === 'question' && msg.questionId === questionId
     );
-
-    const question = questionIndex >= 0 ? interview.conversation[questionIndex].content : '';
+    const question = questionMessage ? questionMessage.content : '';
 
     // Analyze the answer using AI
     let answerAnalysis = null;

@@ -42,6 +42,10 @@ const interviewSchema = new mongoose.Schema({
     aiGenerated: {
       type: Boolean,
       default: false
+    },
+    questionId: {
+      type: Number, // Store the question ID for reliable lookup
+      required: false // Only required for question type messages
     }
   }],
 
