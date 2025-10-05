@@ -30,67 +30,80 @@ const uploadResume = asyncHandler(async (req, res) => {
       ).end(file.buffer);
     });
 
-    // Extract text from the document
-    const extractedText = await resumeParserService.extractText(file.buffer, fileExtension);
-
-    if (!extractedText || extractedText.trim().length === 0) {
-      return errorResponse(res, 'Could not extract text from the document', 400);
+    // UPDATED: Use new Python NLP service integration
+    // Save file temporarily for Python service (if needed)
+    const fs = require('fs');
+    const path = require('path');
+    const tempDir = path.join(__dirname, '../../temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
     }
+    
+    const tempFilePath = path.join(tempDir, `${Date.now()}_${file.originalname}`);
+    fs.writeFileSync(tempFilePath, file.buffer);
 
-    // Parse resume with AI
-    const parsedData = await resumeParserService.parseResumeWithAI(extractedText);
+    try {
+      // Parse resume using new integrated method (calls Python NLP service + generates embeddings)
+      const parsedData = await resumeParserService.parseResume(tempFilePath, file.buffer, fileExtension);
 
-    // Generate embeddings for job matching
-    const embedding = await resumeParserService.generateResumeEmbeddings(parsedData);
+      // Analyze resume quality using Gemini (retained)
+      const aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
 
-    // Analyze resume quality
-    const aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
+      // Check if user already has a resume and update or create new
+      let resume = await Resume.findOne({ userId });
 
-    // Check if user already has a resume and update or create new
-    let resume = await Resume.findOne({ userId });
-
-    if (resume) {
-      // Update existing resume
-      resume.originalFileName = file.originalname;
-      resume.fileUrl = uploadResult.secure_url;
-      resume.fileType = fileExtension;
-      resume.parsedData = parsedData;
-      resume.embedding = embedding;
-      resume.aiAnalysis = aiAnalysis;
-      resume.isProcessed = true;
-      await resume.save();
-    } else {
-      // Create new resume
-      resume = new Resume({
-        userId,
-        originalFileName: file.originalname,
-        fileUrl: uploadResult.secure_url,
-        fileType: fileExtension,
-        parsedData,
-        embedding,
-        aiAnalysis,
-        isProcessed: true
-      });
-      await resume.save();
-    }
-
-    return successResponse(res, {
-      resume: {
-        id: resume._id,
-        originalFileName: resume.originalFileName,
-        fileUrl: resume.fileUrl,
-        fileType: resume.fileType,
-        parsedData: resume.parsedData,
-        aiAnalysis: resume.aiAnalysis,
-        isProcessed: resume.isProcessed,
-        createdAt: resume.createdAt,
-        updatedAt: resume.updatedAt
+      if (resume) {
+        // Update existing resume
+        resume.originalFileName = file.originalname;
+        resume.fileUrl = uploadResult.secure_url;
+        resume.fileType = fileExtension;
+        resume.parsedData = parsedData;
+        resume.embedding = parsedData.embeddings; // UPDATED: Extract embeddings from parsedData
+        resume.aiAnalysis = aiAnalysis;
+        resume.isProcessed = true;
+        await resume.save();
+      } else {
+        // Create new resume
+        resume = new Resume({
+          userId,
+          originalFileName: file.originalname,
+          fileUrl: uploadResult.secure_url,
+          fileType: fileExtension,
+          parsedData,
+          embedding: parsedData.embeddings, // UPDATED: Extract embeddings from parsedData
+          aiAnalysis,
+          isProcessed: true
+        });
+        await resume.save();
       }
-    }, 'Resume uploaded and processed successfully', 201);
+
+      return successResponse(res, {
+        resume: {
+          id: resume._id,
+          originalFileName: resume.originalFileName,
+          fileUrl: resume.fileUrl,
+          fileType: resume.fileType,
+          parsedData: resume.parsedData,
+          aiAnalysis: resume.aiAnalysis,
+          isProcessed: resume.isProcessed,
+          createdAt: resume.createdAt,
+          updatedAt: resume.updatedAt
+        }
+      }, 'Resume uploaded and processed successfully', 201);
+
+    } catch (parseError) {
+      console.error('Resume parsing error:', parseError);
+      return errorResponse(res, 'Failed to process resume: ' + parseError.message, 500);
+    } finally {
+      // Clean up temporary file
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+    }
 
   } catch (error) {
     console.error('Resume upload error:', error);
-    return errorResponse(res, 'Failed to process resume: ' + error.message, 500);
+    return errorResponse(res, 'Failed to upload resume: ' + error.message, 500);
   }
 });
 

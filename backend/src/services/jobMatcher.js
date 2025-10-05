@@ -1,5 +1,35 @@
+const axios = require('axios'); // NEW: Add Axios for microservice communication
 const { getEmbeddingsModel } = require('../config/gemini');
 const { calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch } = require('../utils/scoring');
+
+const PYTHON_NLP_SERVICE_URL = 'http://localhost:5001'; // NEW: Python NLP microservice URL
+
+// NEW: Function to call Python NLP service for job matching
+async function matchJobWithPythonNLP(resumeData, jobData) {
+  try {
+    const response = await axios.post(`${PYTHON_NLP_SERVICE_URL}/match-job`, {
+      resume: resumeData,
+      job: jobData
+    }, {
+      timeout: 15000, // 15 second timeout
+    });
+    
+    if (response.data.success) {
+      return response.data.data;
+    } else {
+      throw new Error(response.data.error || 'Python NLP service returned unsuccessful response');
+    }
+  } catch (error) {
+    console.error('Error calling Python NLP job matching service:', error.message);
+    // Return fallback/default scores if Python service fails
+    return {
+      overall_score: 0.5,
+      skill_match: { score: 0.5, details: [] },
+      experience_match: { score: 0.5, details: [] },
+      education_match: { score: 0.5, details: [] }
+    };
+  }
+}
 
 class JobMatcherService {
   // Generate job embeddings
@@ -94,70 +124,51 @@ class JobMatcherService {
     }
   }
 
-  // Calculate comprehensive job match score
+  // UPDATED: Calculate comprehensive job match score using hybrid approach
   async calculateJobMatchScore(resume, job) {
     try {
-      const scores = {
-        skills: 0,
-        experience: 0,
-        education: 0,
-        semantic: 0
-      };
-
-      const weights = {
-        skills: 0.4,
-        experience: 0.25,
-        education: 0.15,
-        semantic: 0.2
-      };
-
-      // Calculate skills match
-      if (resume.parsedData && resume.parsedData.skills && job.requirements && job.requirements.skills) {
-        scores.skills = calculateResumeJobMatch(
-          resume.parsedData.skills,
-          job.requirements.skills
-        );
-      }
-
-      // Calculate experience match
-      if (resume.parsedData && resume.parsedData.experience && job.requirements) {
-        scores.experience = calculateExperienceMatch(
-          resume.parsedData.experience,
-          job.requirements
-        );
-      }
-
-      // Calculate education match
-      if (resume.parsedData && resume.parsedData.education && job.requirements && job.requirements.education) {
-        scores.education = calculateEducationMatch(
-          resume.parsedData.education,
-          job.requirements.education
-        );
-      } else {
-        scores.education = 70; // Default score if education not specified
-      }
-
-      // Calculate semantic similarity
+      // NEW: Use Python NLP service for rule-based scoring
+      const pythonScores = await matchJobWithPythonNLP(resume.parsedData, job);
+      
+      // RETAINED: Calculate semantic similarity using Gemini embeddings
+      let semanticScore = 0;
       if (resume.embedding && job.embedding) {
         const similarity = this.cosineSimilarity(resume.embedding, job.embedding);
-        scores.semantic = similarity * 100;
+        semanticScore = similarity * 100;
       }
+
+      // UPDATED: Combine Python NLP scores with semantic similarity
+      const weights = {
+        skills: 0.35,        // Python NLP skill matching
+        experience: 0.25,    // Python NLP experience matching  
+        education: 0.15,     // Python NLP education matching
+        semantic: 0.25       // Gemini semantic similarity (increased weight)
+      };
+
+      // Extract scores from Python NLP service
+      const skillsScore = (pythonScores.skill_match?.score || 0) * 100;
+      const experienceScore = (pythonScores.experience_match?.score || 0) * 100;
+      const educationScore = (pythonScores.education_match?.score || 0) * 100;
 
       // Calculate weighted overall score
       const overall = Math.round(
-        scores.skills * weights.skills +
-        scores.experience * weights.experience +
-        scores.education * weights.education +
-        scores.semantic * weights.semantic
+        skillsScore * weights.skills +
+        experienceScore * weights.experience +
+        educationScore * weights.education +
+        semanticScore * weights.semantic
       );
 
       return {
         overall,
         details: {
-          skillsMatch: scores.skills,
-          experienceMatch: scores.experience,
-          educationMatch: scores.education,
-          semanticSimilarity: scores.semantic
+          skillsMatch: skillsScore,
+          experienceMatch: experienceScore,
+          educationMatch: educationScore,
+          semanticSimilarity: semanticScore,
+          // NEW: Include detailed breakdowns from Python service
+          skillDetails: pythonScores.skill_match?.details || [],
+          experienceDetails: pythonScores.experience_match?.details || [],
+          educationDetails: pythonScores.education_match?.details || []
         }
       };
     } catch (error) {

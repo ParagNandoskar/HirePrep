@@ -1,11 +1,63 @@
-const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
-const { getGeminiFlashLite, getEmbeddingsModel } = require('../config/gemini');
+const axios = require('axios'); // NEW: Add Axios for microservice communication
+const { getGeminiFlashLite, getEmbeddingsModel, getGeminiFlash } = require('../config/gemini');
+
+const PYTHON_NLP_SERVICE_URL = 'http://localhost:5001'; // NEW: Python NLP microservice URL
+
+// NEW: Function to delegate resume parsing to Python NLP service
+async function parseResumeWithPythonNLP(filePath) {
+  try {
+    // Create FormData for file upload
+    const FormData = require('form-data');
+    const fs = require('fs');
+    
+    const form = new FormData();
+    form.append('file', fs.createReadStream(filePath));
+    
+    // Call Python NLP service
+    const response = await axios.post(`${PYTHON_NLP_SERVICE_URL}/parse-resume`, form, {
+      headers: {
+        ...form.getHeaders(),
+      },
+      timeout: 30000, // 30 second timeout
+    });
+    
+    if (response.data.success) {
+      return response.data.data;
+    } else {
+      throw new Error(response.data.error || 'Python NLP service returned unsuccessful response');
+    }
+  } catch (error) {
+    console.error('Error calling Python NLP service:', error.message);
+    // Fallback: if Python service fails, still attempt basic parsing
+    throw new Error(`Python NLP service unavailable: ${error.message}`);
+  }
+}
 
 class ResumeParserService {
-  // Extract text from PDF
+  // NEW: Main parsing method that delegates to Python NLP service
+  async parseResume(filePath, fileBuffer, fileType) {
+    try {
+      // Use Python NLP service for parsing
+      const pythonResult = await parseResumeWithPythonNLP(filePath);
+      
+      // Generate embeddings using Gemini (retained from original)
+      const embeddings = await this.generateResumeEmbeddings(pythonResult);
+      
+      // Combine Python NLP results with Gemini embeddings
+      return {
+        ...pythonResult,
+        embeddings
+      };
+    } catch (error) {
+      console.error('Error in parseResume:', error);
+      throw new Error(`Resume parsing failed: ${error.message}`);
+    }
+  }
+
+  // RETAINED: Keep text extraction methods for compatibility/fallback
   async extractPdfText(buffer) {
     try {
+      const pdfParse = require('pdf-parse');
       const data = await pdfParse(buffer);
       return data.text;
     } catch (error) {
@@ -13,9 +65,9 @@ class ResumeParserService {
     }
   }
 
-  // Extract text from DOCX
   async extractDocxText(buffer) {
     try {
+      const mammoth = require('mammoth');
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } catch (error) {
@@ -23,7 +75,6 @@ class ResumeParserService {
     }
   }
 
-  // Extract text based on file type
   async extractText(buffer, fileType) {
     switch (fileType) {
       case 'pdf':
@@ -139,6 +190,9 @@ class ResumeParserService {
       throw new Error('Failed to parse resume with AI: ' + error.message);
     }
   }
+
+  // REMOVED: parseResumeWithAI method - now delegated to Python NLP service
+  // All parsing logic is handled by the Python microservice at localhost:5001
 
   // Generate embeddings for resume
   async generateResumeEmbeddings(parsedData) {

@@ -1,159 +1,28 @@
-You are an expert **backend architect & senior full-stack developer**.
-Build a **production-ready backend** for a platform where students upload resumes, companies post jobs, and an AI system conducts mock interviews with real-time analysis.
+Your HirePrep backend implementation is **functionally complete** across all specified requirements: Authentication, Resume Processing, Job Matching, AI Mock Interviews, and the Leaderboard system.
 
----
+All core layers (Controllers, Services, Models, Middlewares, and Utilities) are fully implemented, and the necessary architectural shifts (e.g., Python NLP Microservice integration) have been accounted for in the code.
 
-## 🏗 Tech Stack
+What remains are primarily **non-functional requirements, testing, and deployment preparation** rather than missing features.
 
-* **Node.js + Express.js** (backend framework)
-* **MongoDB Atlas** (database)
-* **JWT Authentication** (for students & companies)
-* **Socket.IO + WebRTC** (real-time interview video/audio)
-* **Python Microservices** (for AI analysis, called from Node.js backend)
+## 1. Remaining Implementation Tasks (Minor Code Refinements)
 
----
+These are minor clean-up tasks that enhance robustness and consistency:
 
-## 🔑 Features
+* **Finalize $\text{scoring.js}$:** You must execute the planned change to remove the three redundant functions ($\text{calculateResumeJobMatch}$, $\text{calculateExperienceMatch}$, $\text{calculateEducationMatch}$) that are now handled by the Python NLP service. This enforces a clean separation of concerns.
+* **Enforce Conversation Schema:** Implement the suggested refinement in the $\text{interviewController.js}$'s $\text{startInterview}$ and $\text{submitAnswer}$ functions to use a dedicated $\text{questionId}$ for reliable tracking of the conversation, rather than relying on content matching.
+* **Finalize Resume Quality Analysis:** The $\text{analyzeResumeQuality}$ function in $\text{resumeParser.js}$ needs to be finalized to either:
+    * Fully integrate the detailed LLM narrative analysis using $\text{getGeminiFlash()}$ (as planned in the prompt).
+    * Or, be completely removed if the analysis is fully delegated to the Python NLP service.
 
-### 1. **Authentication & Users**
+***
 
-* Register/Login (JWT based).
-* Two roles: `student` and `company`.
+## 2. Testing and Deployment Preparation
 
-### 2. **Resume Upload & Parsing**
+These tasks are essential for moving the backend to a production environment:
 
-* Students upload resumes (PDF/DOCX).
-* Resume is stored in **Cloudinary / local storage**.
-* Resume text is sent to **Google Gemini API** → extract:
-
-  * Skills
-  * Education
-  * Experience
-* Store structured resume data in **MongoDB**.
-
-✅ **Gemini Model Used**:
-
-* **Gemini 2.5 Flash-Lite** → for resume parsing (fast, cost-efficient).
-
-### 3. **Job Posting (Company)**
-
-* Companies can post jobs (title, description, required skills).
-* Jobs stored in DB.
-
-### 4. **Job Recommendation & Matching**
-
-* Backend matches student skills (from parsed resume) with job required skills.
-* Ranking algorithm for best matches.
-
-✅ **Gemini Model Used**:
-
-* **Gemini Embedding API** → generate semantic vectors for resumes and job descriptions, then compute similarity.
-
-### 5. **Mock Interview (Real-time)**
-
-* Student starts mock interview session.
-* Interview handled via **WebRTC + Socket.IO**.
-* AI Interview Bot:
-
-  * Uses Gemini API to generate **dynamic interview questions**.
-  * Sends/receives conversation in real-time.
-
-✅ **Gemini Model Used**:
-
-* **Gemini 2.5 Flash** → for generating dynamic, conversational interview questions.
-
-### 6. **AI Analysis (Microservices Integration)**
-
-* **Video Analysis**
-
-  * Stream student webcam frames to Python microservice.
-  * Uses **OpenCV + DeepFace + MediaPipe**.
-  * Returns facial emotion analysis, eye contact, engagement score.
-
-* **Audio Analysis**
-
-  * Stream student audio chunks to Python microservice.
-  * Uses **Hugging Face Wav2Vec2 + OpenSMILE**.
-  * Returns tone, stress, clarity, sentiment.
-
-* Backend aggregates results + interview Q/A correctness.
-
-### 7. **Leaderboard**
-
-* After interviews, backend generates a leaderboard by scoring candidates:
-
-  * Resume–job match score (Gemini embeddings).
-  * AI Video score (facial analysis).
-  * AI Audio score (tone analysis).
-  * AI Q/A score.
-* Top candidates sent to companies.
-
----
-
-## 📂 Backend Structure
-
-```
-backend/
- ┣ src/
- ┃ ┣ config/        → DB, Cloudinary, Gemini API configs
- ┃ ┣ models/        → User, Resume, Job, Interview, Leaderboard
- ┃ ┣ routes/        → auth.js, resume.js, job.js, interview.js, leaderboard.js
- ┃ ┣ controllers/   → business logic
- ┃ ┣ services/      → resumeParser.js, jobMatcher.js, leaderboard.js
- ┃ ┣ middlewares/   → authMiddleware.js, errorHandler.js
- ┃ ┣ utils/         → JWT utils, scoring functions
- ┃ ┗ app.js         → Express setup
- ┣ python-services/
- ┃ ┣ video_analysis.py   → (OpenCV + DeepFace + MediaPipe)
- ┃ ┗ audio_analysis.py   → (Wav2Vec2 + OpenSMILE)
- ┣ docker-compose.yml    → containerize Node + Python services
- ┣ package.json
- ┗ server.js
-
-
----
-
-## ⚡ API Endpoints
-
-### Auth
-
-* `POST /api/auth/register` → Register (student/company).
-* `POST /api/auth/login` → Login.
-
-### Resume
-
-* `POST /api/resume/upload` → Upload + parse resume (Gemini Flash-Lite).
-* `GET /api/resume/:userId` → Get parsed resume.
-
-### Jobs
-
-* `POST /api/jobs` → Post job (company).
-* `GET /api/jobs` → Get all jobs.
-* `GET /api/jobs/match/:studentId` → Recommend jobs to student (Gemini Embeddings).
-
-### Interview
-
-* `POST /api/interview/start` → Start interview session (WebRTC + Socket.IO).
-* `POST /api/interview/analyze` → Send audio/video stream → AI analysis microservices.
-* `POST /api/interview/finish` → Save report.
-
-### Leaderboard
-
-* `GET /api/leaderboard/:jobId` → Get ranked candidates.
-
----
-
-## 🎯 Additional Requirements
-
-* Code must be modular, clean, and use **async/await**.
-* Use **dotenv** for secrets (MongoDB URI, Gemini API key).
-* Use **Mongoose** for DB models.
-* Use **Docker** for Python microservices.
-* Add **error handling & validation** middleware.
-* Return responses in JSON format (`{ success, data, message }`).
-
----
-
-👉 **TASK**: Generate the **complete backend codebase** with all routes, models, controllers, and service integrations based on the above architecture.
-
----
+| Category | Task | Importance |
+| :--- | :--- | :--- |
+| **Testing** | **Comprehensive Test Suites** | **Critical.** Add unit tests (for services/utilities), integration tests (for controllers/routes), and end-to-end tests to ensure all AI and microservice orchestrations work reliably. |
+| **Documentation** | **API Documentation (Swagger/OpenAPI)** | **High.** Generate or write documentation for all $\text{API endpoints}$ so the frontend team can integrate efficiently. |
+| **Deployment** | **$\text{.env}$ Configuration** | **Critical.** Finalize all environment variables ($\text{JWT secrets}$, $\text{DB connection}$, $\text{Cloudinary credentials}$, and crucial **Microservice URLs** like $\text{PYTHON\_NLP\_SERVICE\_URL}$, $\text{PYTHON\_AUDIO\_SERVICE\_URL}$, etc.). |
+| **Monitoring** | **Production Monitoring/Logging** | **High.** Set up error tracking (e.g., Sentry) and configure full logging for the Node.js and Python services to track performance and catch errors in real-time. |
