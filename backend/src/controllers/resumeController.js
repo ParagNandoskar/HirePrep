@@ -1,8 +1,11 @@
 const Resume = require('../models/Resume');
-const cloudinary = require('../config/cloudinary');
+const { s3Client, deleteFromS3, getS3FileUrl, getSignedFileUrl, extractFileKeyFromUrl } = require('../config/aws');
 const resumeParserService = require('../services/resumeParser');
 const { successResponse, errorResponse, getFileExtension } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
+const fs = require('fs');
+const path = require('path');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
 
 // Upload and parse resume
 const uploadResume = asyncHandler(async (req, res) => {
@@ -15,50 +18,102 @@ const uploadResume = asyncHandler(async (req, res) => {
   const fileExtension = getFileExtension(file.originalname).replace('.', '');
 
   try {
-    // Upload file to Cloudinary
-    const uploadResult = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream(
-        {
-          resource_type: 'raw',
-          public_id: `resumes/${userId}/${Date.now()}_${file.originalname}`,
-          format: fileExtension
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      ).end(file.buffer);
-    });
+    // File is already uploaded to S3 via our custom multer storage
+    // Get the file URL and key from our custom storage response
+    const fileUrl = file.location; // Our custom storage provides this
+    const fileKey = file.key; // S3 object key
 
-    // UPDATED: Use new Python NLP service integration
-    // Save file temporarily for Python service (if needed)
-    const fs = require('fs');
-    const path = require('path');
-    const tempDir = path.join(__dirname, '../../temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
+    // Since we're using custom S3 storage, we need to download the file for local processing
+    // The file is already uploaded to S3, but we need the content for parsing
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
     
-    const tempFilePath = path.join(tempDir, `${Date.now()}_${file.originalname}`);
-    fs.writeFileSync(tempFilePath, file.buffer);
-
     try {
-      // Parse resume using new integrated method (calls Python NLP service + generates embeddings)
-      const parsedData = await resumeParserService.parseResume(tempFilePath, file.buffer, fileExtension);
+      // Download file from S3 using AWS SDK
+      const getObjectCommand = new GetObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: fileKey
+      });
+      
+      const s3Response = await s3Client.send(getObjectCommand);
+      
+      // Convert stream to buffer
+      const chunks = [];
+      for await (const chunk of s3Response.Body) {
+        chunks.push(chunk);
+      }
+      const fileBuffer = Buffer.concat(chunks);
+      
+      // Create temporary file for processing
+      const fs = require('fs');
+      const path = require('path');
+      const tempDir = path.join(__dirname, '../../temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      const tempFilePath = path.join(tempDir, `${Date.now()}_${file.originalname}`);
+      fs.writeFileSync(tempFilePath, fileBuffer);
 
-      // Analyze resume quality using Gemini (retained)
-      const aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
+      // Parse resume - try Python service first, then fallback to local processing
+      let parsedData = null;
+      let aiAnalysis = null;
+      
+      try {
+        parsedData = await resumeParserService.parseResume(tempFilePath, fileBuffer, fileExtension, fileUrl, userId);
+        // Analyze resume quality using Gemini (retained)
+        aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
+      } catch (parseError) {
+        console.error('Resume parsing failed, but continuing with file upload:', parseError.message);
+        // Create minimal parsed data structure
+        parsedData = {
+          personalInfo: { name: null, email: null, phone: null },
+          summary: null,
+          skills: [],
+          education: [],
+          experience: [],
+          projects: [],
+          certifications: [],
+          languages: [],
+          embeddings: []
+        };
+        aiAnalysis = {
+          overallScore: 0,
+          strengths: [],
+          improvements: ['Resume parsing failed - please upload a different format or contact support'],
+          careerSuggestions: []
+        };
+      }
 
       // Check if user already has a resume and update or create new
       let resume = await Resume.findOne({ userId });
 
       if (resume) {
+        // Delete old file from S3 if it exists
+        if (resume.fileKey) {
+          try {
+            await deleteFromS3(resume.fileKey);
+          } catch (deleteError) {
+            console.warn('Failed to delete old resume file:', deleteError.message);
+          }
+        } else if (resume.fileUrl) {
+          // Extract file key from URL (fallback for old records)
+          const oldFileKey = extractFileKeyFromUrl(resume.fileUrl);
+          if (oldFileKey) {
+            try {
+              await deleteFromS3(oldFileKey);
+            } catch (deleteError) {
+              console.warn('Failed to delete old resume file:', deleteError.message);
+            }
+          }
+        }
+
         // Update existing resume
         resume.originalFileName = file.originalname;
-        resume.fileUrl = uploadResult.secure_url;
+        resume.fileUrl = fileUrl;
+        resume.fileKey = fileKey; // Store S3 key for deletion
         resume.fileType = fileExtension;
         resume.parsedData = parsedData;
-        resume.embedding = parsedData.embeddings; // UPDATED: Extract embeddings from parsedData
+        resume.embedding = parsedData.embeddings; // Extract embeddings from parsedData
         resume.aiAnalysis = aiAnalysis;
         resume.isProcessed = true;
         await resume.save();
@@ -67,14 +122,20 @@ const uploadResume = asyncHandler(async (req, res) => {
         resume = new Resume({
           userId,
           originalFileName: file.originalname,
-          fileUrl: uploadResult.secure_url,
+          fileUrl,
+          fileKey, // Store S3 key for deletion
           fileType: fileExtension,
           parsedData,
-          embedding: parsedData.embeddings, // UPDATED: Extract embeddings from parsedData
+          embedding: parsedData.embeddings, // Extract embeddings from parsedData
           aiAnalysis,
           isProcessed: true
         });
         await resume.save();
+      }
+
+      // Clean up temporary file
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
       }
 
       return successResponse(res, {
@@ -93,12 +154,24 @@ const uploadResume = asyncHandler(async (req, res) => {
 
     } catch (parseError) {
       console.error('Resume parsing error:', parseError);
-      return errorResponse(res, 'Failed to process resume: ' + parseError.message, 500);
-    } finally {
+      
       // Clean up temporary file
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try {
+          fs.unlinkSync(tempFilePath);
+        } catch (unlinkError) {
+          console.warn('Failed to cleanup temp file:', unlinkError.message);
+        }
       }
+      
+      // Delete uploaded file from S3 since processing failed
+      try {
+        await deleteFromS3(fileKey);
+      } catch (deleteError) {
+        console.warn('Failed to cleanup uploaded file after parse error:', deleteError.message);
+      }
+      
+      return errorResponse(res, 'Failed to process resume: ' + parseError.message, 500);
     }
 
   } catch (error) {
@@ -216,10 +289,16 @@ const deleteResume = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Delete file from Cloudinary
-    if (resume.fileUrl) {
-      const publicId = resume.fileUrl.split('/').pop().split('.')[0];
-      await cloudinary.uploader.destroy(`resumes/${userId}/${publicId}`, { resource_type: 'raw' });
+    // Delete file from S3
+    if (resume.fileKey) {
+      // Use stored file key
+      await deleteFromS3(resume.fileKey);
+    } else if (resume.fileUrl) {
+      // Extract file key from URL (fallback for old records)
+      const fileKey = extractFileKeyFromUrl(resume.fileUrl);
+      if (fileKey) {
+        await deleteFromS3(fileKey);
+      }
     }
 
     // Delete resume from database
@@ -349,6 +428,43 @@ const getResumeAnalytics = asyncHandler(async (req, res) => {
   }, 'Resume analytics retrieved successfully');
 });
 
+// Get secure signed URL for resume file access
+const getResumeSignedUrl = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { expiresIn = 3600 } = req.query; // Default 1 hour expiration
+  
+  // Check if user is accessing their own resume or if they're authorized (company)
+  if (req.user.id !== userId && req.user.role !== 'company') {
+    return errorResponse(res, 'Access denied', 403);
+  }
+
+  const resume = await Resume.findOne({ userId });
+
+  if (!resume) {
+    return errorResponse(res, 'Resume not found', 404);
+  }
+
+  if (!resume.fileKey) {
+    return errorResponse(res, 'Resume file key not found', 404);
+  }
+
+  try {
+    // Generate signed URL for secure access
+    const signedUrl = await getSignedFileUrl(resume.fileKey, parseInt(expiresIn));
+    
+    return successResponse(res, {
+      signedUrl,
+      fileName: resume.originalFileName,
+      fileType: resume.fileType,
+      expiresIn: parseInt(expiresIn),
+      expiresAt: new Date(Date.now() + parseInt(expiresIn) * 1000).toISOString()
+    }, 'Signed URL generated successfully');
+  } catch (error) {
+    console.error('Signed URL generation error:', error);
+    return errorResponse(res, 'Failed to generate signed URL: ' + error.message, 500);
+  }
+});
+
 module.exports = {
   uploadResume,
   getResume,
@@ -356,5 +472,6 @@ module.exports = {
   updateResumeData,
   deleteResume,
   analyzeResumeForJob,
-  getResumeAnalytics
+  getResumeAnalytics,
+  getResumeSignedUrl
 };

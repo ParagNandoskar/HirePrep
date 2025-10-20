@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=no-member  # OpenCV functions are dynamically loaded
 """
 Video Analysis Microservice
 
@@ -62,14 +63,14 @@ class VideoAnalyzer:
             # Decode base64 image
             img_data = base64.b64decode(frame_data)
             nparr = np.frombuffer(img_data, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # pylint: disable=no-member
             
             if frame is None:
                 logger.warning("Failed to decode frame image.")
                 return None
             
             # Convert BGR to RGB for MediaPipe
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # pylint: disable=no-member
             
             # Analyze different aspects
             face_analysis = self._analyze_face(rgb_frame, frame)
@@ -180,7 +181,6 @@ class VideoAnalyzer:
                 img_path=frame, 
                 actions=['emotion'], 
                 enforce_detection=False,  # Don't throw error if no face is found
-                models={'emotion': self.emotion_model}, 
                 detector_backend='mediapipe'  # Use MediaPipe detection
             )
             

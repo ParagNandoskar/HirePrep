@@ -32,9 +32,18 @@ const jobSchema = new mongoose.Schema({
       industries: [String]
     },
     location: {
-      type: String,
-      remote: Boolean,
-      hybrid: Boolean
+      type: {
+        type: String,
+        default: 'Remote'
+      },
+      remote: {
+        type: Boolean,
+        default: false
+      },
+      hybrid: {
+        type: Boolean,
+        default: false
+      }
     }
   },
   compensation: {

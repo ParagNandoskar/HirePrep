@@ -50,7 +50,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/resume', resumeRoutes);
-app.use('/api/jobs', jobRoutes);
+app.use('/api/job', jobRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/status', statusRoutes);

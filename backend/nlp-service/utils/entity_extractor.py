@@ -1,7 +1,13 @@
 import re
 import spacy
+import sys
+import os
 from typing import List, Dict, Any, Optional
 import logging
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.text_processor import TextProcessor
 
 logger = logging.getLogger(__name__)

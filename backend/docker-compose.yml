@@ -13,17 +13,33 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
-      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
-      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - PYTHON_NLP_SERVICE_URL=http://nlp-service:5001
       - PYTHON_VIDEO_SERVICE_URL=http://video-analysis:8001
       - PYTHON_AUDIO_SERVICE_URL=http://audio-analysis:8002
     volumes:
       - .:/app
       - /app/node_modules
     depends_on:
+      - nlp-service
       - video-analysis
       - audio-analysis
+    networks:
+      - hireprep-network
+
+  # Python NLP Service
+  nlp-service:
+    build:
+      context: ./nlp-service
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - FLASK_ENV=development
     networks:
       - hireprep-network
 

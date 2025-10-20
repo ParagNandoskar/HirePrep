@@ -10,7 +10,7 @@ The HirePrep backend has been fully implemented with all features from the origi
 
 ### Core Platform Features
 - **Authentication & Authorization** - JWT-based auth with refresh tokens for students and companies
-- **Resume Upload & AI Parsing** - Upload PDFs/DOCX, extract structured data using Google Gemini + Python NLP
+- **Resume Upload & AI Parsing** - Upload PDFs/DOCX to AWS S3 (SDK v3), extract structured data using Google Gemini + Python NLP
 - **Job Posting & Matching** - Hybrid semantic + rule-based job-candidate matching
 - **Real-time Mock Interviews** - WebRTC + Socket.IO for live interview sessions
 - **Multi-modal AI Analysis** - Video/audio analysis via Python microservices with DeepFace integration
@@ -40,7 +40,8 @@ backend/
 │   │
 │   ├── 📂 config/                   # Configuration files
 │   │   ├── database.js              # MongoDB connection
-│   │   ├── cloudinary.js            # File storage config
+│   │   ├── aws.js                   # AWS S3 configuration & upload
+│   │   ├── cloudinary.js            # File storage config (deprecated)
 │   │   └── gemini.js                # Google Gemini AI config
 │   │
 │   ├── 📂 models/                   # Database schemas
@@ -97,7 +98,8 @@ backend/
 | **Backend** | Node.js + Express.js | ✅ Complete |
 | **Database** | MongoDB + Mongoose | ✅ Complete |
 | **Authentication** | JWT with refresh tokens | ✅ Complete |
-| **File Storage** | Cloudinary | ✅ Complete |
+| **File Storage** | AWS S3 (SDK v3) | ✅ Complete |
+| **File Storage (Legacy)** | Cloudinary | ✅ Deprecated |
 | **AI Services** | Google Gemini API | ✅ Complete |
 | **Real-time** | Socket.IO + WebRTC | ✅ Complete |
 | **NLP Service** | Python + spaCy + scikit-learn | ✅ Complete |
@@ -233,7 +235,7 @@ const questionMessage = interview.conversation.find(
 - Python 3.9+ (for microservices)
 - MongoDB Atlas account
 - Google Gemini API key
-- Cloudinary account
+- AWS S3 account (SDK v3)
 
 ### 1. Clone and Install
 ```bash
@@ -259,10 +261,11 @@ JWT_REFRESH_SECRET=your-refresh-secret
 # Google Gemini
 GEMINI_API_KEY=your-gemini-api-key
 
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
+# AWS S3
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+AWS_REGION=ap-south-1
+AWS_S3_BUCKET=hireprep-resume
 ```
 
 ### 3. Install Python Dependencies
@@ -333,7 +336,7 @@ const hybridScore = combineScores(pythonScores, semanticScore);
 - ✅ CORS configuration
 - ✅ Security headers (Helmet.js)
 - ✅ Password hashing (bcrypt)
-- ✅ File upload security (Cloudinary)
+- ✅ File upload security (AWS S3)
 
 ## 📊 Performance Optimizations
 

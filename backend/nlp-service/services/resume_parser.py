@@ -6,7 +6,13 @@ import io
 import re
 import time
 import logging
+import sys
+import os
 from typing import Dict, List, Any
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.text_processor import TextProcessor
 from utils.entity_extractor import EntityExtractor
 

@@ -3,7 +3,7 @@ const { getEmbeddingsModel } = require('../config/gemini');
 // REMOVED: calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch imports
 // These functions are now handled by the Python NLP microservice
 
-const PYTHON_NLP_SERVICE_URL = 'http://localhost:5001'; // NEW: Python NLP microservice URL
+const PYTHON_NLP_SERVICE_URL = process.env.PYTHON_NLP_SERVICE_URL || 'http://localhost:5001'; // Python NLP microservice URL
 
 // NEW: Function to call Python NLP service for job matching
 async function matchJobWithPythonNLP(resumeData, jobData) {

@@ -150,3 +150,7 @@ env/
 # Test files
 test-results/
 coverage/
+
+
+/backend/scripts/test-comprehensive.ps1
+/backend/scripts/
