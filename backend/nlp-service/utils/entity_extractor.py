@@ -104,55 +104,63 @@ class EntityExtractor:
         return list(skills)
     
     def extract_education(self, text: str) -> List[Dict[str, Any]]:
-        """Extract education information with better pattern matching"""
+        """Extract education information with simple line-based splitting for messy tables."""
         education = []
+        # Change: Use full text directly instead of section extraction
+        education_section = text
         
-        # Find education section
-        education_section = self._extract_education_section(text)
-        if not education_section:
-            education_section = text  # Fall back to full text
+        # Clean up the text block first: remove non-educational noise (links, contact info)
+        clean_section = re.sub(r'(?:https?://|LinkedIn|Github|Portfolio)\s*', '', education_section, flags=re.IGNORECASE).strip()
         
-        # Updated degree patterns for better matching
+        # Split by double newline or common separators to separate institution blocks
+        edu_entries = re.split(r'\n\n|\n\s*-\s*|\n\s*•\s*', clean_section)
+        
+        # Simplified degree patterns focusing on common acronyms and keywords
         degree_patterns = [
-            r'(B\.?Tech\.?|Bachelor\s+of\s+Technology)\s+(?:in\s+)?([\w\s&]+?)(?:\s+CGPA|\s+GPA|\s+\d{4}|\n)',
-            r'(B\.?E\.?|Bachelor\s+of\s+Engineering)\s+(?:in\s+)?([\w\s&]+?)(?:\s+CGPA|\s+GPA|\s+\d{4}|\n)',
-            r'(M\.?Tech\.?|Master\s+of\s+Technology)\s+(?:in\s+)?([\w\s&]+?)(?:\s+CGPA|\s+GPA|\s+\d{4}|\n)',
-            r'(Bachelor|Master|PhD|Doctorate)\s+(?:of\s+)?(?:Science\s+)?(?:Arts\s+)?(?:in\s+)?([\w\s&]+?)(?:\s+CGPA|\s+GPA|\s+\d{4}|\n)',
-            r'(B\.?S\.?|M\.?S\.?|Ph\.?D\.?|M\.?A\.?|B\.?A\.?)\s+(?:in\s+)?([\w\s&]+?)(?:\s+CGPA|\s+GPA|\s+\d{4}|\n)',
+            r'(B\.?Tech\.?|B\.?E\.?|Bachelor)',
+            r'(M\.?Tech\.?|M\.?S\.?|Master)',
+            r'(Ph\.?D\.?|Doctorate)',
+            r'(12th|10th|SSC|HSC|Diploma)' # Capture the high school entries
         ]
         
-        for pattern in degree_patterns:
-            matches = re.finditer(pattern, education_section, re.IGNORECASE | re.MULTILINE)
-            for match in matches:
-                degree = match.group(1).strip()
-                field = match.group(2).strip() if len(match.groups()) > 1 and match.group(2) else ""
+        for entry in edu_entries:
+            entry = entry.strip()
+            if not entry:
+                continue
                 
-                # Clean up field of study
-                field = re.sub(r'\s+', ' ', field).strip()
-                
-                # Try to find institution name nearby
-                institution = self._find_nearby_institution(education_section, match.start(), match.end())
-                
-                # Try to find graduation year
-                year = self._find_nearby_year(education_section, match.start(), match.end())
-                
+            degree = ""
+            field = ""
+            
+            # Check for degree type
+            for pattern_str in degree_patterns:
+                match = re.search(pattern_str, entry, re.IGNORECASE)
+                if match:
+                    degree = match.group(0).strip().replace('.', '')
+                    break
+                    
+            # Simple extraction for institution (often the first strong capitalized phrase)
+            institution_match = re.search(r'([A-Z][a-zA-Z\s,]+(?:College|University|Vidyamandir|Vidyalaya|Institute))', entry)
+            institution = institution_match.group(1).strip() if institution_match else entry.split('\n')[0].strip()
+
+            # Try to extract year (last 4-digit number)
+            year = self._find_nearby_year(entry, 0, len(entry))
+
+            if degree or institution:
                 education.append({
                     'degree': degree,
-                    'fieldOfStudy': field,
+                    'fieldOfStudy': field, # Field of study is too hard to reliably extract here
                     'institution': institution,
                     'year': year
                 })
-        
+                
         return education
     
     def extract_experience(self, text: str) -> List[Dict[str, Any]]:
         """Extract work experience information"""
         experience = []
         
-        # Find experience section
-        experience_section = self._extract_experience_section(text)
-        if not experience_section:
-            experience_section = text
+        # Change: Use full text directly instead of section extraction
+        experience_section = text
         
         # Split into potential job entries
         job_entries = self._split_experience_entries(experience_section)
@@ -163,6 +171,35 @@ class EntityExtractor:
                 experience.append(job_info)
         
         return experience
+    
+    def extract_projects(self, text: str) -> List[Dict[str, Any]]:
+        """Extract project information"""
+        # Change: Use full text directly instead of section extraction
+        project_section = text
+        
+        # Re-use experience splitting for project entries
+        project_entries = self._split_experience_entries(project_section) 
+        projects = []
+        
+        for entry in project_entries:
+            # Simple parsing for project name and description
+            lines = entry.split('\n')
+            
+            project_name = lines[0].strip()
+            description = '\n'.join(lines[1:]).strip()
+            
+            # Clean up the project name and description
+            project_name = re.sub(r'Demo Source Code', '', project_name).strip()  # Remove project links from title
+            description = re.sub(r'(Demo|Source Code|Live Link)[:\s]+[^\n]+', '', description, flags=re.IGNORECASE).strip()
+            
+            if len(project_name) > 5 and len(description) > 10:
+                 projects.append({
+                    'name': project_name,
+                    'description': description,
+                    'technologies': [] 
+                })
+        
+        return projects
     
     def extract_certifications(self, text: str) -> List[str]:
         """Extract certifications from text"""
@@ -274,38 +311,35 @@ class EntityExtractor:
         )
     
     def _parse_skills_section(self, skills_text: str) -> List[str]:
-        """Parse skills from skills section text with better formatting handling"""
+        """Parse skills from skills section text with aggressive splitting and cleaning."""
         skills = set()
         
-        # Handle different skill section formats
-        # Format 1: "Frontend: React, HTML, CSS"
-        category_pattern = r'([A-Za-z\s]+):\s*([^\n\r]+)'
-        category_matches = re.findall(category_pattern, skills_text)
+        # Normalize separators (replace bullets, tabs, multiple spaces, etc. with a single comma)
+        skills_text = re.sub(r'[-•*#\s]{2,}|\s{2,}', ', ', skills_text)
+        skills_text = re.sub(r'[:;|\n\r]+', ',', skills_text)
+
+        # 1. Split by comma and filter empty entries
+        skill_items = [item.strip() for item in skills_text.split(',') if item.strip()]
         
-        for category, skill_list in category_matches:
-            # Split skills by commas and clean them
-            skill_items = re.split(r'[,;\n\t\|]', skill_list)
-            for item in skill_items:
-                item = item.strip()
-                if len(item) > 1 and len(item) < 30:  # Reasonable skill name length
-                    # Remove any trailing punctuation or formatting
-                    item = re.sub(r'[^\w\s\.\+\#-]', '', item).strip()
-                    if item:
-                        skills.add(item)
-        
-        # If no categorized skills found, try general parsing
-        if not skills:
-            # Split by common delimiters
-            skill_items = re.split(r'[,;\n\t\|]', skills_text)
-            
-            for item in skill_items:
-                item = item.strip()
-                # Clean up the item
-                item = re.sub(r'^[-•\*\s]+', '', item)  # Remove bullet points
-                item = re.sub(r'[^\w\s\.\+\#-]', '', item).strip()  # Remove special chars except common ones in tech
-                
-                if len(item) > 1 and len(item) < 30:  # Reasonable skill name length
-                    skills.add(item)
+        for item in skill_items:
+            # Separate skills that are still merged but start with a capital letter (e.g. "NodejsExpress")
+            # Split merged words using regex if they are longer than a typical skill name (e.g., > 15 chars)
+            if len(item) > 15:
+                # Pattern to split by lower-to-upper transition (e.g., 'javaScriptNodejs' -> 'javaScript', 'Nodejs')
+                item_parts = re.findall('[A-Z][a-z0-9.]+|[a-z0-9.]+', item)
+                # Re-join only if they were originally separated by spaces/punctuation
+                if len(item_parts) > 1 and len(item_parts) < 5: 
+                    item = ' '.join(item_parts)
+
+            # Final cleanup: remove residual punctuation, link identifiers (Demo, Code, etc.)
+            item = re.sub(r'[()]', '', item)
+            item = re.sub(r'(Demo|Source Code|Live Link)[:\s]+[^\n]+', '', item, flags=re.IGNORECASE).strip()
+            item = re.sub(r'[^a-zA-Z0-9\s\.\+\#-]+$', '', item).strip() 
+            item = re.sub(r'^\s*[-•*#\s]+', '', item).strip()
+
+            # Check against a common list for single-word filtering
+            if len(item) > 1 and len(item) < 40 and any(char.isalpha() for char in item):
+                skills.add(item.title()) # Use .title() to unify case (e.g. 'css' -> 'Css', 'CSS' -> 'Css')
         
         return list(skills)
     
@@ -350,10 +384,22 @@ class EntityExtractor:
         return matches[-1] if matches else ""  # Return last year found
     
     def _split_experience_entries(self, experience_text: str) -> List[str]:
-        """Split experience section into individual job entries"""
-        # Split by patterns that indicate new job entries
-        entries = re.split(r'\n(?=[A-Z][a-z\s]+(Engineer|Manager|Developer|Analyst|Specialist|Director|Lead))', experience_text)
-        return [entry.strip() for entry in entries if len(entry.strip()) > 50]
+        """Split experience section into individual job/project entries with lower length threshold."""
+        
+        # Pattern to split by: Two or more newlines OR a newline followed by a strong title cue.
+        split_pattern = r'\n{2,}|\n(?=[A-Z][a-z0-9.]+\s+[A-Z])|\n(?=[A-Z][a-z]+\s+(?:Intern|Project|Developer|Head))'
+        
+        entries = re.split(split_pattern, experience_text)
+        
+        # Filter out empty or too-short entries, and entries that are obviously just contact info or headers
+        return [
+            entry.strip() for entry in entries 
+            # CRITICAL CHANGE: Lower the minimum length to 30 to prevent discarding bullet points
+            if len(entry.strip()) > 30 and 
+            # Relax noise removal: Only filter out entries that are PURELY contact info (phone/email/linkedin)
+            not re.search(r'email|phone|\d{3}[-.\s]?\d{3}|linkedin', entry, re.IGNORECASE) and
+            any(char.isalpha() for char in entry)
+        ]
     
     def _parse_job_entry(self, entry: str) -> Optional[Dict[str, Any]]:
         """Parse individual job entry"""

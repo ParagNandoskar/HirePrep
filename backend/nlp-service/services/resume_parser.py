@@ -209,6 +209,9 @@ class ResumeParser:
         # Extract work experience
         experience = self.entity_extractor.extract_experience(text)
         
+        # Extract projects (NEW)
+        projects = self.entity_extractor.extract_projects(text)
+        
         # Extract certifications
         certifications = self.entity_extractor.extract_certifications(text)
         
@@ -223,6 +226,7 @@ class ResumeParser:
             'skills': skills,
             'education': education,
             'experience': experience,
+            'projects': projects,  # <--- ENSURE 'projects' IS INCLUDED HERE
             'certifications': certifications,
             'summary': summary,
             'namedEntities': ner_entities,

@@ -12,7 +12,7 @@ async function matchJobWithPythonNLP(resumeData, jobData) {
       resume: resumeData,
       job: jobData
     }, {
-      timeout: 15000, // 15 second timeout
+      timeout: 30000, // 30 second timeout (increased from 15s for reliable NLP processing)
     });
     
     if (response.data.success) {

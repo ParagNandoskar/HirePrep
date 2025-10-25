@@ -18,7 +18,7 @@ async function parseResumeWithPythonNLP(resumeUrl, candidateId = null) {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 30000, // 30 second timeout
+      timeout: 90000, // 90 second timeout (increased from 30s for complex NLP processing)
     });
     
     if (response.data.success) {

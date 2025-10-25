@@ -56,18 +56,50 @@ class TextProcessor:
         return sections
     
     def _extract_section_content(self, text: str, text_lower: str, headers: List[str]) -> str:
-        """Extract content for a specific section"""
-        for header in headers:
-            pattern = rf'\b{re.escape(header)}\b.*?(?=\n[A-Z][A-Z\s]+|\n\n|\Z)'
-            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-            
-            if match:
-                content = match.group(0)
-                # Remove the header itself
-                content = re.sub(rf'^.*?{re.escape(header)}[:\s]*', '', content, flags=re.IGNORECASE)
-                return content.strip()
+        """Extract content for a specific section using robust header finding and boundary detection."""
         
-        return ""
+        all_headers = []
+        for header_list in self.section_headers.values():
+            all_headers.extend(header_list)
+        all_headers.extend(['projects', 'personal projects', 'key projects', 'major projects', 'extra-curricular activities', 'certificates', 'licenses']) # Include all known headers
+        
+        # 1. Find the start of the current section
+        # Pattern: Look for the header as a distinct line item (start of line + header + optional punctuation/whitespace)
+        current_header_pattern = r'(?:^|\n)\s*(' + '|'.join([re.escape(h) for h in headers]) + r')\s*[:\s]*'
+        
+        start_match = re.search(current_header_pattern, text, re.IGNORECASE)
+        
+        if not start_match:
+            return ""
+
+        # Content starts immediately after the matched header and any following punctuation/whitespace
+        content_start = start_match.end()
+        
+        # 2. Find the end of the current section (start of the next header)
+        content_end = len(text)
+        
+        # Compile pattern for ANY other header to define the end boundary
+        current_headers_lower = [h.lower() for h in headers]
+        next_header_candidates = [re.escape(h) for h in all_headers if h.lower() not in current_headers_lower]
+        
+        if next_header_candidates:
+            next_header_pattern = '|'.join(next_header_candidates)
+            
+            # Look for the start of the NEXT header. Use a minimal lookahead pattern.
+            # This looks for a newline or start of string, followed by a strong header.
+            next_match = re.search(rf'(\n|^)\s*({next_header_pattern})', text[content_start:], re.IGNORECASE)
+
+            if next_match:
+                # The content ends right where the next header's match starts
+                content_end = content_start + next_match.start()
+            
+        # 3. Extract and clean content
+        content = text[content_start:content_end].strip()
+        
+        # Remove final leading/trailing bullets/junk that might interfere with child parsers
+        content = re.sub(r'^\s*[-•*#\s]*\n', '', content).strip()
+        
+        return content
     
     def tokenize(self, text: str) -> List[str]:
         """Tokenize text into words"""

@@ -93,6 +93,50 @@ const uploadResume = asyncHandler(async (req, res) => {
         }
       }
       
+      // --- START: Skill Deduplication Fix ---
+      if (parsedData && parsedData.skills && Array.isArray(parsedData.skills)) {
+        // Define common mapping for standardization
+        const skillMap = {
+          'Mysql': 'MySQL',
+          'Mongodb': 'MongoDB',
+          'Css': 'CSS',
+          'Html': 'HTML',
+          'Javascript': 'JavaScript',
+          'Node': 'Node.js', // Standardize 'Node' to 'Node.js'
+          'Reactjs': 'React',
+          'Nodejs': 'Node.js',
+          'Expressjs': 'Express',
+          'Js': 'JavaScript',
+          'Ts': 'TypeScript',
+          'Postgresql': 'PostgreSQL',
+          'Github': 'GitHub',
+          'Gitlab': 'GitLab',
+          'Aws': 'AWS',
+          'Api': 'API',
+          'Ui': 'UI',
+          'Ux': 'UX'
+        };
+
+        const seenSkills = new Map();
+        
+        parsedData.skills.forEach(skillObj => {
+          // Use the mapped name or original name, and force Title Case for consistency
+          let standardizedName = (skillMap[skillObj.name] || skillObj.name).trim();
+
+          // Check for case-insensitive duplicates (e.g., 'CSS' vs 'Css')
+          const key = standardizedName.toLowerCase();
+          
+          if (!seenSkills.has(key)) {
+            // Store the skill object under the standardized name/key
+            seenSkills.set(key, { ...skillObj, name: standardizedName });
+          }
+        });
+
+        // Replace the original array with the deduplicated, standardized list
+        parsedData.skills = Array.from(seenSkills.values());
+      }
+      // --- END: Skill Deduplication Fix ---
+      
       // Handle other potential data format mismatches
       if (parsedData && parsedData.education && Array.isArray(parsedData.education)) {
         parsedData.education = parsedData.education.map(edu => {
@@ -358,6 +402,48 @@ const updateResumeData = asyncHandler(async (req, res) => {
         return skill; // Already in correct format
       });
     }
+    
+    // --- START: Skill Deduplication Fix for Manual Updates ---
+    // Define common mapping for standardization
+    const skillMap = {
+      'Mysql': 'MySQL',
+      'Mongodb': 'MongoDB',
+      'Css': 'CSS',
+      'Html': 'HTML',
+      'Javascript': 'JavaScript',
+      'Node': 'Node.js', // Standardize 'Node' to 'Node.js'
+      'Reactjs': 'React',
+      'Nodejs': 'Node.js',
+      'Expressjs': 'Express',
+      'Js': 'JavaScript',
+      'Ts': 'TypeScript',
+      'Postgresql': 'PostgreSQL',
+      'Github': 'GitHub',
+      'Gitlab': 'GitLab',
+      'Aws': 'AWS',
+      'Api': 'API',
+      'Ui': 'UI',
+      'Ux': 'UX'
+    };
+
+    const seenSkills = new Map();
+    
+    updatedParsedData.skills.forEach(skillObj => {
+      // Use the mapped name or original name, and force Title Case for consistency
+      let standardizedName = (skillMap[skillObj.name] || skillObj.name).trim();
+
+      // Check for case-insensitive duplicates (e.g., 'CSS' vs 'Css')
+      const key = standardizedName.toLowerCase();
+      
+      if (!seenSkills.has(key)) {
+        // Store the skill object under the standardized name/key
+        seenSkills.set(key, { ...skillObj, name: standardizedName });
+      }
+    });
+
+    // Replace the original array with the deduplicated, standardized list
+    updatedParsedData.skills = Array.from(seenSkills.values());
+    // --- END: Skill Deduplication Fix for Manual Updates ---
   }
   // --- END: Schema Mismatch Fix for Manual Updates ---
   
