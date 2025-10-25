@@ -217,6 +217,83 @@ class ResumeParserService {
         throw new Error('Unsupported file type');
     }
   }
+
+  // Analyze resume quality using AI (placeholder for Gemini integration)
+  async analyzeResumeQuality(parsedData) {
+    try {
+      // Create a basic analysis based on parsed data
+      const analysis = {
+        overallScore: 0,
+        strengths: [],
+        improvements: [],
+        careerSuggestions: []
+      };
+
+      // Calculate score based on completeness
+      let score = 0;
+      
+      if (parsedData.personalInfo?.name) score += 10;
+      if (parsedData.personalInfo?.email) score += 10;
+      if (parsedData.personalInfo?.phone) score += 5;
+      if (parsedData.summary && parsedData.summary.length > 50) score += 15;
+      if (parsedData.skills && parsedData.skills.length > 0) score += 20;
+      if (parsedData.experience && parsedData.experience.length > 0) score += 25;
+      if (parsedData.education && parsedData.education.length > 0) score += 15;
+
+      analysis.overallScore = Math.min(100, score);
+
+      // Generate strengths
+      if (parsedData.skills && parsedData.skills.length >= 5) {
+        analysis.strengths.push('Strong technical skill set');
+      }
+      if (parsedData.experience && parsedData.experience.length >= 2) {
+        analysis.strengths.push('Good work experience');
+      }
+      if (parsedData.education && parsedData.education.length > 0) {
+        analysis.strengths.push('Educational background documented');
+      }
+
+      // Generate improvements
+      if (!parsedData.summary || parsedData.summary.length < 50) {
+        analysis.improvements.push('Add a professional summary');
+      }
+      if (!parsedData.skills || parsedData.skills.length < 5) {
+        analysis.improvements.push('Include more relevant skills');
+      }
+      if (!parsedData.projects || parsedData.projects.length === 0) {
+        analysis.improvements.push('Add project experience');
+      }
+
+      return analysis;
+    } catch (error) {
+      console.error('Resume quality analysis error:', error);
+      return {
+        overallScore: 50,
+        strengths: ['Resume uploaded successfully'],
+        improvements: ['Consider adding more details'],
+        careerSuggestions: []
+      };
+    }
+  }
+
+  // Generate embeddings for resume data (placeholder)
+  async generateResumeEmbeddings(parsedData) {
+    try {
+      // Simple embedding generation - in production, use actual AI service
+      const text = [
+        parsedData.summary || '',
+        (parsedData.skills || []).join(' '),
+        (parsedData.experience || []).map(exp => exp.title || '').join(' ')
+      ].join(' ');
+
+      // Generate simple numerical representation
+      const embeddings = Array(100).fill(0).map(() => Math.random() - 0.5);
+      return embeddings;
+    } catch (error) {
+      console.error('Embedding generation error:', error);
+      return [];
+    }
+  }
 }
 
 module.exports = new ResumeParserService();

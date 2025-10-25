@@ -3,7 +3,7 @@ const { s3Client, deleteFromS3, getS3FileUrl, getSignedFileUrl, extractFileKeyFr
 const resumeParserService = require('../services/resumeParser');
 const { successResponse, errorResponse, getFileExtension } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
-const fs = require('fs');
+const fs = require('fs').promises; // Use promises version for async/await
 const path = require('path');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 
@@ -16,6 +16,7 @@ const uploadResume = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const file = req.file;
   const fileExtension = getFileExtension(file.originalname).replace('.', '');
+  let tempFilePath = null;
 
   try {
     // File is already uploaded to S3 via our custom multer storage
@@ -23,160 +24,234 @@ const uploadResume = asyncHandler(async (req, res) => {
     const fileUrl = file.location; // Our custom storage provides this
     const fileKey = file.key; // S3 object key
 
+    // Generate pre-signed URL for secure access by Python service (6 minutes expiration)
+    const secureUrl = await getSignedFileUrl(fileKey, 360);
+
     // Since we're using custom S3 storage, we need to download the file for local processing
     // The file is already uploaded to S3, but we need the content for parsing
     const { GetObjectCommand } = require('@aws-sdk/client-s3');
     
+    // Download file from S3 using AWS SDK
+    const getObjectCommand = new GetObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Key: fileKey
+    });
+    
+    const s3Response = await s3Client.send(getObjectCommand);
+    
+    // Convert stream to buffer
+    const chunks = [];
+    for await (const chunk of s3Response.Body) {
+      chunks.push(chunk);
+    }
+    const fileBuffer = Buffer.concat(chunks);
+    
+    // Create temporary file for processing
+    const tempDir = path.join(__dirname, '../../temp');
+    const fsSync = require('fs'); // Keep sync version for directory creation
+    if (!fsSync.existsSync(tempDir)) {
+      fsSync.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    tempFilePath = path.join(tempDir, `${Date.now()}_${file.originalname}`);
+    await fs.writeFile(tempFilePath, fileBuffer);
+
+    // Parse resume - try Python service first with secure URL, then fallback to local processing
+    let parsedData = null;
+    let aiAnalysis = null;
+    
     try {
-      // Download file from S3 using AWS SDK
-      const getObjectCommand = new GetObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key: fileKey
-      });
+      // Use secure pre-signed URL for Python service
+      parsedData = await resumeParserService.parseResume(tempFilePath, fileBuffer, fileExtension, secureUrl, userId);
       
-      const s3Response = await s3Client.send(getObjectCommand);
-      
-      // Convert stream to buffer
-      const chunks = [];
-      for await (const chunk of s3Response.Body) {
-        chunks.push(chunk);
+      // --- START: Schema Mismatch Fix ---
+      if (parsedData && parsedData.skills && Array.isArray(parsedData.skills)) {
+        // Check if the first element is a string, confirming the incorrect format
+        if (parsedData.skills.length > 0 && typeof parsedData.skills[0] === 'string') {
+          console.log("Transforming skills data to match Mongoose schema...");
+          
+          // Map the array of strings to the required array of objects
+          parsedData.skills = parsedData.skills.map(skillName => {
+            // Determine category based on skill name (basic categorization)
+            let category = 'technical'; // default
+            const softSkills = ['communication', 'leadership', 'teamwork', 'problem solving', 'time management'];
+            const languages = ['english', 'spanish', 'french', 'german', 'chinese', 'japanese', 'hindi'];
+            
+            const skillLower = skillName.toLowerCase();
+            if (softSkills.some(soft => skillLower.includes(soft))) {
+              category = 'soft';
+            } else if (languages.some(lang => skillLower.includes(lang))) {
+              category = 'language';
+            }
+            
+            return {
+              name: skillName,
+              category: category,
+              proficiency: 'intermediate' // Default proficiency level
+            };
+          });
+        }
       }
-      const fileBuffer = Buffer.concat(chunks);
       
-      // Create temporary file for processing
-      const fs = require('fs');
-      const path = require('path');
-      const tempDir = path.join(__dirname, '../../temp');
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
+      // Handle other potential data format mismatches
+      if (parsedData && parsedData.education && Array.isArray(parsedData.education)) {
+        parsedData.education = parsedData.education.map(edu => {
+          if (typeof edu === 'string') {
+            return {
+              institution: edu,
+              degree: '',
+              field: '',
+              startDate: '',
+              endDate: '',
+              gpa: '',
+              achievements: []
+            };
+          }
+          return edu;
+        });
       }
       
-      const tempFilePath = path.join(tempDir, `${Date.now()}_${file.originalname}`);
-      fs.writeFileSync(tempFilePath, fileBuffer);
-
-      // Parse resume - try Python service first, then fallback to local processing
-      let parsedData = null;
-      let aiAnalysis = null;
-      
-      try {
-        parsedData = await resumeParserService.parseResume(tempFilePath, fileBuffer, fileExtension, fileUrl, userId);
-        // Analyze resume quality using Gemini (retained)
-        aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
-      } catch (parseError) {
-        console.error('Resume parsing failed, but continuing with file upload:', parseError.message);
-        // Create minimal parsed data structure
-        parsedData = {
-          personalInfo: { name: null, email: null, phone: null },
-          summary: null,
-          skills: [],
-          education: [],
-          experience: [],
-          projects: [],
-          certifications: [],
-          languages: [],
-          embeddings: []
-        };
-        aiAnalysis = {
-          overallScore: 0,
-          strengths: [],
-          improvements: ['Resume parsing failed - please upload a different format or contact support'],
-          careerSuggestions: []
-        };
+      if (parsedData && parsedData.experience && Array.isArray(parsedData.experience)) {
+        parsedData.experience = parsedData.experience.map(exp => {
+          if (typeof exp === 'string') {
+            return {
+              company: '',
+              position: exp,
+              location: '',
+              startDate: '',
+              endDate: '',
+              description: '',
+              achievements: [],
+              skills: []
+            };
+          }
+          return exp;
+        });
       }
+      
+      if (parsedData && parsedData.languages && Array.isArray(parsedData.languages)) {
+        parsedData.languages = parsedData.languages.map(lang => {
+          if (typeof lang === 'string') {
+            return {
+              name: lang,
+              proficiency: 'intermediate'
+            };
+          }
+          return lang;
+        });
+      }
+      // --- END: Schema Mismatch Fix ---
+      
+      // Analyze resume quality using Gemini (retained)
+      aiAnalysis = await resumeParserService.analyzeResumeQuality(parsedData);
+    } catch (parseError) {
+      console.error('Resume parsing failed, but continuing with file upload:', parseError.message);
+      // Create minimal parsed data structure
+      parsedData = {
+        personalInfo: { name: null, email: null, phone: null },
+        summary: null,
+        skills: [],
+        education: [],
+        experience: [],
+        projects: [],
+        certifications: [],
+        languages: [],
+        embeddings: []
+      };
+      aiAnalysis = {
+        overallScore: 0,
+        strengths: [],
+        improvements: ['Resume parsing failed - please upload a different format or contact support'],
+        careerSuggestions: []
+      };
+    }
 
-      // Check if user already has a resume and update or create new
-      let resume = await Resume.findOne({ userId });
+    // Check if user already has a resume and update or create new
+    let resume = await Resume.findOne({ userId });
 
-      if (resume) {
-        // Delete old file from S3 if it exists
-        if (resume.fileKey) {
+    if (resume) {
+      // Delete old file from S3 if it exists
+      if (resume.fileKey) {
+        try {
+          await deleteFromS3(resume.fileKey);
+        } catch (deleteError) {
+          console.warn('Failed to delete old resume file:', deleteError.message);
+        }
+      } else if (resume.fileUrl) {
+        // Extract file key from URL (fallback for old records)
+        const oldFileKey = extractFileKeyFromUrl(resume.fileUrl);
+        if (oldFileKey) {
           try {
-            await deleteFromS3(resume.fileKey);
+            await deleteFromS3(oldFileKey);
           } catch (deleteError) {
             console.warn('Failed to delete old resume file:', deleteError.message);
           }
-        } else if (resume.fileUrl) {
-          // Extract file key from URL (fallback for old records)
-          const oldFileKey = extractFileKeyFromUrl(resume.fileUrl);
-          if (oldFileKey) {
-            try {
-              await deleteFromS3(oldFileKey);
-            } catch (deleteError) {
-              console.warn('Failed to delete old resume file:', deleteError.message);
-            }
-          }
-        }
-
-        // Update existing resume
-        resume.originalFileName = file.originalname;
-        resume.fileUrl = fileUrl;
-        resume.fileKey = fileKey; // Store S3 key for deletion
-        resume.fileType = fileExtension;
-        resume.parsedData = parsedData;
-        resume.embedding = parsedData.embeddings; // Extract embeddings from parsedData
-        resume.aiAnalysis = aiAnalysis;
-        resume.isProcessed = true;
-        await resume.save();
-      } else {
-        // Create new resume
-        resume = new Resume({
-          userId,
-          originalFileName: file.originalname,
-          fileUrl,
-          fileKey, // Store S3 key for deletion
-          fileType: fileExtension,
-          parsedData,
-          embedding: parsedData.embeddings, // Extract embeddings from parsedData
-          aiAnalysis,
-          isProcessed: true
-        });
-        await resume.save();
-      }
-
-      // Clean up temporary file
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
-      }
-
-      return successResponse(res, {
-        resume: {
-          id: resume._id,
-          originalFileName: resume.originalFileName,
-          fileUrl: resume.fileUrl,
-          fileType: resume.fileType,
-          parsedData: resume.parsedData,
-          aiAnalysis: resume.aiAnalysis,
-          isProcessed: resume.isProcessed,
-          createdAt: resume.createdAt,
-          updatedAt: resume.updatedAt
-        }
-      }, 'Resume uploaded and processed successfully', 201);
-
-    } catch (parseError) {
-      console.error('Resume parsing error:', parseError);
-      
-      // Clean up temporary file
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try {
-          fs.unlinkSync(tempFilePath);
-        } catch (unlinkError) {
-          console.warn('Failed to cleanup temp file:', unlinkError.message);
         }
       }
-      
-      // Delete uploaded file from S3 since processing failed
-      try {
-        await deleteFromS3(fileKey);
-      } catch (deleteError) {
-        console.warn('Failed to cleanup uploaded file after parse error:', deleteError.message);
-      }
-      
-      return errorResponse(res, 'Failed to process resume: ' + parseError.message, 500);
+
+      // Update existing resume
+      resume.originalFileName = file.originalname;
+      resume.fileUrl = fileUrl;
+      resume.fileKey = fileKey; // Store S3 key for deletion
+      resume.fileType = fileExtension;
+      resume.parsedData = parsedData;
+      resume.embedding = parsedData.embeddings; // Extract embeddings from parsedData
+      resume.aiAnalysis = aiAnalysis;
+      resume.isProcessed = true;
+      await resume.save();
+    } else {
+      // Create new resume
+      resume = new Resume({
+        userId,
+        originalFileName: file.originalname,
+        fileUrl,
+        fileKey, // Store S3 key for deletion
+        fileType: fileExtension,
+        parsedData,
+        embedding: parsedData.embeddings, // Extract embeddings from parsedData
+        aiAnalysis,
+        isProcessed: true
+      });
+      await resume.save();
     }
+
+    return successResponse(res, {
+      resume: {
+        id: resume._id,
+        originalFileName: resume.originalFileName,
+        fileUrl: resume.fileUrl,
+        fileType: resume.fileType,
+        parsedData: resume.parsedData,
+        aiAnalysis: resume.aiAnalysis,
+        isProcessed: resume.isProcessed,
+        createdAt: resume.createdAt,
+        updatedAt: resume.updatedAt
+      }
+    }, 'Resume uploaded and processed successfully', 201);
 
   } catch (error) {
     console.error('Resume upload error:', error);
+    
+    // Delete uploaded file from S3 since processing failed
+    if (file && file.key) {
+      try {
+        await deleteFromS3(file.key);
+      } catch (deleteError) {
+        console.warn('Failed to cleanup uploaded file after error:', deleteError.message);
+      }
+    }
+    
     return errorResponse(res, 'Failed to upload resume: ' + error.message, 500);
+  } finally {
+    // GUARANTEED CLEANUP: Always delete temporary file if it was created
+    if (tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+        console.log(`Temp file deleted: ${tempFilePath}`);
+      } catch (unlinkError) {
+        console.warn('Failed to cleanup temp file:', unlinkError.message);
+      }
+    }
   }
 });
 
@@ -252,7 +327,41 @@ const updateResumeData = asyncHandler(async (req, res) => {
   }
 
   // Update parsed data
-  resume.parsedData = { ...resume.parsedData, ...parsedData };
+  const updatedParsedData = { ...resume.parsedData, ...parsedData };
+  
+  // --- START: Schema Mismatch Fix for Manual Updates ---
+  if (updatedParsedData.skills && Array.isArray(updatedParsedData.skills)) {
+    // Check if any element is a string, confirming the incorrect format
+    if (updatedParsedData.skills.some(skill => typeof skill === 'string')) {
+      console.log("Transforming skills data in manual update to match Mongoose schema...");
+      
+      updatedParsedData.skills = updatedParsedData.skills.map(skill => {
+        if (typeof skill === 'string') {
+          // Determine category based on skill name
+          let category = 'technical'; // default
+          const softSkills = ['communication', 'leadership', 'teamwork', 'problem solving', 'time management'];
+          const languages = ['english', 'spanish', 'french', 'german', 'chinese', 'japanese', 'hindi'];
+          
+          const skillLower = skill.toLowerCase();
+          if (softSkills.some(soft => skillLower.includes(soft))) {
+            category = 'soft';
+          } else if (languages.some(lang => skillLower.includes(lang))) {
+            category = 'language';
+          }
+          
+          return {
+            name: skill,
+            category: category,
+            proficiency: 'intermediate'
+          };
+        }
+        return skill; // Already in correct format
+      });
+    }
+  }
+  // --- END: Schema Mismatch Fix for Manual Updates ---
+  
+  resume.parsedData = updatedParsedData;
   
   // Regenerate embeddings with updated data
   try {
