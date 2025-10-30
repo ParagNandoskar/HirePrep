@@ -259,6 +259,88 @@ const uploadResume = asyncHandler(async (req, res) => {
       await resume.save();
     }
 
+    // Auto-add extracted skills to user's candidate profile
+    try {
+      if (parsedData && parsedData.skills && parsedData.skills.length > 0) {
+        const Candidate = require('../models/Candidate');
+        let candidate = await Candidate.findOne({ userId });
+        
+        if (!candidate) {
+          // Create new candidate profile if it doesn't exist
+          const User = require('../models/User');
+          const user = await User.findById(userId);
+          
+          if (user) {
+            candidate = new Candidate({
+              userId: userId,
+              firstName: user.name?.split(' ')[0] || '',
+              lastName: user.name?.split(' ').slice(1).join(' ') || '',
+              email: user.email,
+              skills: [],
+              education: [],
+              experience: [],
+              projects: [],
+              certifications: [],
+              languages: []
+            });
+            
+            try {
+              await candidate.save();
+              console.log(`Created new candidate profile for user ${userId}`);
+            } catch (createError) {
+              if (createError.code === 11000) {
+                // If duplicate key error, try to find existing candidate again
+                candidate = await Candidate.findOne({ userId });
+                if (!candidate) {
+                  console.error('Could not create or find candidate profile:', createError);
+                  return; // Skip skill update but don't fail the resume upload
+                }
+              } else {
+                throw createError;
+              }
+            }
+          }
+        }
+        
+        if (candidate) {
+          // Get current candidate skills or initialize empty array
+          const currentSkills = candidate.skills || [];
+          const currentSkillNames = currentSkills.map(skill => skill.name.toLowerCase());
+          
+          // Add new skills that don't already exist in candidate's profile
+          const newSkills = parsedData.skills
+            .filter(resumeSkill => !currentSkillNames.includes(resumeSkill.name.toLowerCase()))
+            .map(resumeSkill => ({
+              name: resumeSkill.name,
+              level: resumeSkill.proficiency === 'beginner' ? 'Beginner' :
+                     resumeSkill.proficiency === 'intermediate' ? 'Intermediate' :
+                     resumeSkill.proficiency === 'advanced' ? 'Advanced' :
+                     resumeSkill.proficiency === 'expert' ? 'Expert' : 'Intermediate',
+              yearsOfExperience: 0,
+              source: 'resume-extracted',
+              addedAt: new Date()
+            }));
+          
+          if (newSkills.length > 0) {
+            console.log(`Adding ${newSkills.length} new skills to candidate profile:`, newSkills.map(s => s.name).join(', '));
+            
+            // Add new skills to candidate's profile
+            candidate.skills.push(...newSkills);
+            await candidate.save();
+            
+            console.log(`Successfully added ${newSkills.length} skills to candidate ${userId} profile`);
+          } else {
+            console.log('No new skills to add - all extracted skills already exist in candidate profile');
+          }
+        } else {
+          console.log('Candidate profile not found for user:', userId);
+        }
+      }
+    } catch (skillUpdateError) {
+      console.error('Error updating candidate skills from resume:', skillUpdateError);
+      // Don't fail the upload if skill update fails
+    }
+
     return successResponse(res, {
       resume: {
         id: resume._id,
@@ -660,10 +742,248 @@ const getResumeSignedUrl = asyncHandler(async (req, res) => {
   }
 });
 
+// Get all resumes (frontend expects this endpoint)
+const getResumes = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  
+  console.log('🔍 getResumes called for user:', userId);
+  
+  const resumes = await Resume.find({ userId }).sort({ createdAt: -1 });
+  
+  console.log('📄 Found resumes in database:', resumes.length);
+  if (resumes.length > 0) {
+    console.log('📄 First resume details:', {
+      id: resumes[0]._id,
+      originalFileName: resumes[0].originalFileName,
+      isProcessed: resumes[0].isProcessed,
+      createdAt: resumes[0].createdAt
+    });
+  }
+  
+  // Map resume data to match frontend expectations exactly
+  const mappedResumes = resumes.map(resume => ({
+    _id: resume._id,
+    filename: resume.originalFileName, // Frontend expects 'filename'
+    originalName: resume.originalFileName, // Fallback field
+    uploadDate: resume.createdAt, // Frontend expects 'uploadDate'
+    lastAnalyzed: resume.isProcessed ? resume.updatedAt : null, // Frontend checks this for "Skills Extracted" status
+    extractedData: resume.parsedData, // Frontend expects 'extractedData' instead of 'parsedData'
+    isProcessed: resume.isProcessed,
+    fileUrl: resume.fileUrl,
+    fileKey: resume.fileKey,
+    fileType: resume.fileType,
+    aiAnalysis: resume.aiAnalysis,
+    nlpScore: resume.aiAnalysis?.overallScore || 0, // Frontend expects 'nlpScore'
+    size: null // We don't store file size, but frontend handles null gracefully
+  }));
+  
+  console.log('✅ Sending mapped resumes to frontend:', mappedResumes.length);
+  if (mappedResumes.length > 0) {
+    console.log('📄 Sample resume object:', JSON.stringify(mappedResumes[0], null, 2));
+  }
+  
+  return successResponse(res, { resumes: mappedResumes }, 'Resumes retrieved successfully');
+});
+
+// Transfer skills from resume to candidate profile (manual trigger)
+const syncSkillsToProfile = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  
+  console.log('🔄 Syncing skills and profile data to profile for user:', userId);
+  
+  // Find the most recent resume
+  const resume = await Resume.findOne({ userId }).sort({ createdAt: -1 });
+  
+  if (!resume) {
+    return errorResponse(res, 'No resume found', 404);
+  }
+  
+  console.log('📄 Found resume with skills:', resume.parsedData?.skills?.length || 0);
+  console.log('📄 Resume personal info:', resume.parsedData?.personalInfo);
+  
+  // Find or create candidate profile
+  const Candidate = require('../models/Candidate');
+  let candidate = await Candidate.findOne({ userId });
+  
+  if (!candidate) {
+    const User = require('../models/User');
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return errorResponse(res, 'User not found', 404);
+    }
+    
+    candidate = new Candidate({
+      userId: userId,
+      firstName: user.name?.split(' ')[0] || '',
+      lastName: user.name?.split(' ').slice(1).join(' ') || '',
+      email: user.email,
+      skills: [],
+      education: [],
+      experience: [],
+      projects: [],
+      certifications: [],
+      languages: []
+    });
+    
+    await candidate.save();
+    console.log('✅ Created new candidate profile');
+  }
+  
+  // Update phone number from resume if available and not already set
+  let phoneUpdated = false;
+  if (resume.parsedData?.personalInfo?.phone && (!candidate.phone || candidate.phone.trim() === '')) {
+    candidate.phone = resume.parsedData.personalInfo.phone.trim();
+    phoneUpdated = true;
+    console.log('📞 Updated phone number from resume:', candidate.phone);
+  }
+  
+  // Handle skills sync
+  let skillsAdded = 0;
+  if (resume.parsedData?.skills && resume.parsedData.skills.length > 0) {
+    // Get current candidate skills
+    const currentSkills = candidate.skills || [];
+    const currentSkillNames = currentSkills.map(skill => skill.name.toLowerCase());
+    
+    // Add new skills from resume
+    const resumeSkills = resume.parsedData.skills;
+    const newSkills = resumeSkills
+      .filter(resumeSkill => !currentSkillNames.includes(resumeSkill.name.toLowerCase()))
+      .map(resumeSkill => ({
+        name: resumeSkill.name,
+        level: resumeSkill.proficiency === 'beginner' ? 'Beginner' :
+               resumeSkill.proficiency === 'intermediate' ? 'Intermediate' :
+               resumeSkill.proficiency === 'advanced' ? 'Advanced' :
+               resumeSkill.proficiency === 'expert' ? 'Expert' : 'Intermediate',
+        yearsOfExperience: 0,
+        source: 'resume-extracted',
+        addedAt: new Date()
+      }));
+    
+    if (newSkills.length > 0) {
+      console.log('🔄 Adding skills:', newSkills.map(s => s.name).join(', '));
+      candidate.skills.push(...newSkills);
+      skillsAdded = newSkills.length;
+    } else {
+      console.log('ℹ️ No new skills to add');
+    }
+  }
+  
+  // Save the candidate with updated data
+  await candidate.save();
+  
+  if (skillsAdded > 0 || phoneUpdated) {
+    console.log('✅ Successfully synced profile data');
+    return successResponse(res, { 
+      skillsAdded: skillsAdded,
+      skills: skillsAdded > 0 ? candidate.skills.filter(s => s.source === 'resume-extracted').map(s => s.name) : [],
+      phoneUpdated: phoneUpdated
+    }, `Successfully synced profile data - ${skillsAdded} skills added${phoneUpdated ? ', phone updated' : ''}`);
+  } else {
+    console.log('ℹ️ No new data to sync');
+    return successResponse(res, { 
+      skillsAdded: 0,
+      skills: [],
+      phoneUpdated: false
+    }, 'No new data to sync - profile already up to date');
+  }
+});
+
+// View resume by ID (frontend expects this endpoint)
+const viewResume = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  const resume = await Resume.findById(id).populate('userId', 'name email');
+  
+  if (!resume) {
+    return errorResponse(res, 'Resume not found', 404);
+  }
+
+  // Check permissions
+  if (req.user.role === 'student' && req.user.id !== resume.userId._id.toString()) {
+    return errorResponse(res, 'Access denied', 403);
+  }
+
+  return successResponse(res, resume, 'Resume retrieved successfully');
+});
+
+// Download resume by candidate ID (frontend expects this endpoint)
+const downloadResume = asyncHandler(async (req, res) => {
+  const { candidateId } = req.params;
+  
+  const resume = await Resume.findOne({ userId: candidateId, isProcessed: true });
+  
+  if (!resume) {
+    return errorResponse(res, 'Resume not found', 404);
+  }
+
+  if (!resume.fileKey) {
+    return errorResponse(res, 'Resume file not available', 404);
+  }
+
+  try {
+    // Generate signed URL for download
+    const signedUrl = await getSignedFileUrl(resume.fileKey, 300); // 5 minutes
+    
+    return successResponse(res, {
+      downloadUrl: signedUrl,
+      fileName: resume.originalFileName || 'resume.pdf'
+    }, 'Download URL generated successfully');
+    
+  } catch (error) {
+    console.error('Download resume error:', error);
+    return errorResponse(res, 'Failed to generate download URL', 500);
+  }
+});
+
+// Reprocess resume (frontend expects this endpoint)
+const reprocessResume = asyncHandler(async (req, res) => {
+  const { candidateId } = req.params;
+  
+  // Check permissions
+  if (req.user.role === 'student' && req.user.id !== candidateId) {
+    return errorResponse(res, 'Access denied', 403);
+  }
+
+  const resume = await Resume.findOne({ userId: candidateId });
+  
+  if (!resume) {
+    return errorResponse(res, 'Resume not found', 404);
+  }
+
+  try {
+    // Re-trigger the parsing process
+    if (resume.fileKey) {
+      const secureUrl = await getSignedFileUrl(resume.fileKey, 300);
+      const parsedData = await resumeParserService.parseResume(secureUrl, resume.originalFileName);
+      
+      resume.parsedData = parsedData.parsedData;
+      resume.aiAnalysis = parsedData.aiAnalysis;
+      resume.isProcessed = true;
+      resume.processedAt = new Date();
+      
+      await resume.save();
+      
+      return successResponse(res, resume, 'Resume reprocessed successfully');
+    } else {
+      return errorResponse(res, 'Resume file not available for reprocessing', 400);
+    }
+    
+  } catch (error) {
+    console.error('Reprocess resume error:', error);
+    return errorResponse(res, 'Failed to reprocess resume', 500);
+  }
+});
+
 module.exports = {
   uploadResume,
   getResume,
   getMyResume,
+  getResumes,
+  syncSkillsToProfile,
+  viewResume,
+  downloadResume,
+  reprocessResume,
   updateResumeData,
   deleteResume,
   analyzeResumeForJob,

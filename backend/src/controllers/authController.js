@@ -5,7 +5,7 @@ const { asyncHandler } = require('../middlewares/errorHandler');
 
 // Register user (student or company)
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password, role, profile } = req.body;
+  const { name, firstName, lastName, email, password, role, profile } = req.body;
 
   // Check if user already exists
   const existingUser = await User.findOne({ email });
@@ -13,12 +13,32 @@ const register = asyncHandler(async (req, res) => {
     return errorResponse(res, 'User with this email already exists', 400);
   }
 
+  // Handle name format (support both name and firstName/lastName)
+  let fullName = name;
+  if (!fullName && firstName) {
+    // If lastName is empty or not provided, just use firstName
+    if (lastName && lastName.trim() !== '') {
+      fullName = `${firstName} ${lastName}`;
+    } else {
+      fullName = firstName;
+    }
+  }
+
+  // Map frontend roles to backend roles
+  const roleMapping = {
+    'candidate': 'student',
+    'employer': 'company',
+    'student': 'student',
+    'company': 'company'
+  };
+  const mappedRole = roleMapping[role] || role;
+
   // Create user
   const userData = {
-    name,
+    name: fullName,
     email,
     password,
-    role,
+    role: mappedRole,
     profile: profile || {}
   };
 
@@ -29,12 +49,19 @@ const register = asyncHandler(async (req, res) => {
   const token = generateToken({ id: user._id, role: user.role });
   const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 
+  // Map backend roles back to frontend format for response
+  const frontendRoleMapping = {
+    'student': 'candidate',
+    'company': 'employer'
+  };
+  const frontendRole = frontendRoleMapping[user.role] || user.role;
+
   return successResponse(res, {
     user: {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: frontendRole, // Return frontend-expected role
       profile: user.profile,
       avatar: user.avatar,
       createdAt: user.createdAt
@@ -64,12 +91,19 @@ const login = asyncHandler(async (req, res) => {
   const token = generateToken({ id: user._id, role: user.role });
   const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 
+  // Map backend roles back to frontend format for response
+  const frontendRoleMapping = {
+    'student': 'candidate',
+    'company': 'employer'
+  };
+  const frontendRole = frontendRoleMapping[user.role] || user.role;
+
   return successResponse(res, {
     user: {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: frontendRole, // Return frontend-expected role
       profile: user.profile,
       avatar: user.avatar,
       isVerified: user.isVerified,
@@ -108,6 +142,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 });
 
 // Get current user profile
+// Get user profile
 const getProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id);
   
@@ -115,12 +150,19 @@ const getProfile = asyncHandler(async (req, res) => {
     return errorResponse(res, 'User not found', 404);
   }
 
+  // Map backend roles back to frontend format for response
+  const frontendRoleMapping = {
+    'student': 'candidate',
+    'company': 'employer'
+  };
+  const frontendRole = frontendRoleMapping[user.role] || user.role;
+
   return successResponse(res, {
     user: {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: frontendRole, // Return frontend-expected role
       profile: user.profile,
       avatar: user.avatar,
       isVerified: user.isVerified,

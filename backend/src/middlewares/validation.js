@@ -17,12 +17,15 @@ const validate = (schema) => {
 
 // User registration validation
 const registerValidation = Joi.object({
-  name: Joi.string().min(2).max(50).required(),
+  // Support both formats for backward compatibility
+  name: Joi.string().min(2).max(50).optional().allow(''),
+  firstName: Joi.string().min(1).max(25).optional().allow(''),
+  lastName: Joi.string().min(0).max(25).optional().allow(''),
   email: Joi.string().email().required(),
   password: Joi.string().min(6).max(128).required(),
-  role: Joi.string().valid('student', 'company').required(),
+  role: Joi.string().valid('student', 'company', 'candidate', 'employer').required(),
   profile: Joi.object().when('role', {
-    is: 'student',
+    is: Joi.string().valid('student', 'candidate'),
     then: Joi.object({
       university: Joi.string().optional(),
       degree: Joi.string().optional(),
@@ -30,13 +33,27 @@ const registerValidation = Joi.object({
       phone: Joi.string().optional()
     }),
     otherwise: Joi.object({
-      companyName: Joi.string().required(),
+      companyName: Joi.string().optional(), // Made optional for flexibility
       companySize: Joi.string().optional(),
       industry: Joi.string().optional(),
       website: Joi.string().uri().optional(),
       description: Joi.string().max(1000).optional()
     })
   }).optional()
+}).custom((value, helpers) => {
+  // Ensure either name or firstName is provided (lastName can be empty)
+  if (!value.name && !value.firstName) {
+    return helpers.error('any.custom', { 
+      message: 'Either "name" or "firstName" must be provided' 
+    });
+  }
+  
+  // If name is empty but firstName is provided, that's okay
+  if (!value.name && value.firstName) {
+    return value;
+  }
+  
+  return value;
 });
 
 // User login validation

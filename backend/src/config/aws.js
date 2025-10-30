@@ -14,7 +14,9 @@ const s3Client = new S3Client({
 });
 
 // Custom multer storage engine for S3 using AWS SDK v3
-const s3Storage = (options) => {
+const s3Storage = (options = {}) => {
+  const { folder = 'uploads', allowedTypes = [], maxSize = 10 * 1024 * 1024 } = options;
+  
   return {
     _handleFile: async (req, file, cb) => {
       try {
@@ -22,7 +24,7 @@ const s3Storage = (options) => {
         const timestamp = Date.now();
         const randomString = Math.random().toString(36).substring(2, 15);
         const fileExtension = path.extname(file.originalname);
-        const fileName = `resumes/${timestamp}-${randomString}${fileExtension}`;
+        const fileName = `${folder}/${timestamp}-${randomString}${fileExtension}`;
 
         // Buffer the file stream
         const chunks = [];
@@ -37,6 +39,8 @@ const s3Storage = (options) => {
               Key: fileName,
               Body: buffer,
               ContentType: file.mimetype,
+              // Make profile images publicly readable
+              ...(folder === 'profile-images' && { ACL: 'public-read' }),
               Metadata: {
                 fieldName: file.fieldname,
                 uploadTime: new Date().toISOString(),
@@ -92,7 +96,11 @@ const s3Storage = (options) => {
 
 // Multer configuration for S3 upload using AWS SDK v3
 const uploadToS3 = multer({
-  storage: s3Storage(),
+  storage: s3Storage({
+    folder: 'resumes',
+    allowedTypes: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    maxSize: 10 * 1024 * 1024 // 10MB
+  }),
   fileFilter: (req, file, cb) => {
     // Allow only PDF and DOCX files
     const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -104,6 +112,27 @@ const uploadToS3 = multer({
   },
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+});
+
+// Multer configuration for profile image upload
+const uploadProfileImageToS3 = multer({
+  storage: s3Storage({
+    folder: 'profile-images',
+    allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+    maxSize: 5 * 1024 * 1024 // 5MB
+  }),
+  fileFilter: (req, file, cb) => {
+    // Allow only image files
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (JPEG, PNG, GIF, WebP) are allowed'), false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit for images
   }
 });
 
@@ -179,6 +208,7 @@ const checkS3Connection = async () => {
 module.exports = {
   s3Client,
   uploadToS3,
+  uploadProfileImageToS3,
   deleteFromS3,
   getSignedFileUrl,
   getS3FileUrl,

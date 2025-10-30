@@ -1,486 +1,597 @@
-const Job = require('../models/Job');
-const Resume = require('../models/Resume');
-const jobMatcherService = require('../services/jobMatcher');
-const { successResponse, errorResponse, formatPaginationResponse, paginate } = require('../utils/helpers');
-const { asyncHandler } = require('../middlewares/errorHandler');
+const Job = require("../models/Job");
+const Company = require("../models/Company");
+const Application = require("../models/Application");
+const Candidate = require("../models/Candidate");
+const Resume = require("../models/Resume");
+const jobMatcherService = require("../services/jobMatcher");
+const {
+  successResponse,
+  errorResponse,
+  formatPaginationResponse,
+  paginate,
+} = require("../utils/helpers");
+const { asyncHandler } = require("../middlewares/errorHandler");
 
-// Create a new job posting (company only)
+// Create new job (company endpoint - compatible with frontend API)
 const createJob = asyncHandler(async (req, res) => {
-  const companyId = req.user.id;
-  const jobData = { ...req.body, companyId };
+  const userId = req.user.id;
+  const jobData = req.body;
 
-  try {
-    // Generate embeddings for the job
-    const embedding = await jobMatcherService.generateJobEmbeddings(jobData);
-    jobData.embedding = embedding;
+  console.log("DEBUG: Creating job for company:", userId);
+  console.log("DEBUG: Job data received:", jobData); // Verify user is a company
 
-    const job = new Job(jobData);
-    await job.save();
-
-    // Populate company information
-    await job.populate('companyId', 'name profile');
-
-    return successResponse(res, {
-      job: {
-        id: job._id,
-        title: job.title,
-        description: job.description,
-        requirements: job.requirements,
-        compensation: job.compensation,
-        jobType: job.jobType,
-        status: job.status,
-        applicationDeadline: job.applicationDeadline,
-        tags: job.tags,
-        company: job.companyId,
-        applicants: job.applicants,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt
-      }
-    }, 'Job posted successfully', 201);
-  } catch (error) {
-    console.error('Job creation error:', error);
-    return errorResponse(res, 'Failed to create job posting: ' + error.message, 500);
+  const company = await Company.findOne({ userId });
+  if (!company) {
+    return errorResponse(res, "Company profile not found", 404);
   }
+
+  const job = new Job({
+    ...jobData,
+    companyId: userId,
+    postedAt: new Date(),
+    status: "active",
+  });
+
+  await job.save();
+
+  console.log("DEBUG: Job created successfully with ID:", job._id);
+  return successResponse(res, job, "Job created successfully");
 });
 
-// Get all jobs with filtering and pagination
-const getJobs = asyncHandler(async (req, res) => {
+// Get all jobs with filtering and pagination (compatible with frontend API)
+const getAllJobs = asyncHandler(async (req, res) => {
   const {
     page = 1,
     limit = 10,
-    search,
-    jobType,
     location,
-    salaryMin,
-    salaryMax,
-    tags,
+    type,
+    level,
+    remote,
+    keyword,
+    minSalary,
+    maxSalary,
+    skills,
     companyId,
-    sortBy = 'createdAt',
-    sortOrder = 'desc'
   } = req.query;
 
-  // Build query
-  const query = { status: 'active' };
+  console.log("DEBUG: Fetching jobs with filters:", req.query); // Build filter object
 
-  // Search filter
-  if (search) {
-    query.$or = [
-      { title: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } },
-      { 'requirements.skills.name': { $regex: search, $options: 'i' } }
+  const filter = { status: "active" };
+
+  if (location && location !== "all") {
+    filter.$or = [
+      { "location.city": new RegExp(location, "i") },
+      { "location.state": new RegExp(location, "i") },
+      { "location.country": new RegExp(location, "i") },
     ];
   }
 
-  // Job type filter
-  if (jobType) {
-    query.jobType = jobType;
+  if (type && type !== "all") {
+    filter.type = type;
   }
 
-  // Location filter
-  if (location) {
-    query['requirements.location.type'] = { $regex: location, $options: 'i' };
+  if (level && level !== "all") {
+    filter.experienceLevel = level;
   }
 
-  // Salary range filter
-  if (salaryMin || salaryMax) {
-    query['compensation.salaryMin'] = {};
-    if (salaryMin) query['compensation.salaryMin'].$gte = parseInt(salaryMin);
-    if (salaryMax) query['compensation.salaryMax'] = { $lte: parseInt(salaryMax) };
+  if (remote && remote !== "all") {
+    filter.remote = remote === "true";
   }
 
-  // Tags filter
-  if (tags) {
-    const tagArray = Array.isArray(tags) ? tags : [tags];
-    query.tags = { $in: tagArray };
+  if (keyword) {
+    filter.$or = [
+      { title: new RegExp(keyword, "i") },
+      { description: new RegExp(keyword, "i") },
+      { "requirements.skills": new RegExp(keyword, "i") },
+    ];
   }
 
-  // Company filter
+  if (skills) {
+    const skillsArray = Array.isArray(skills) ? skills : skills.split(",");
+    filter["requirements.skills"] = {
+      $in: skillsArray.map((skill) => new RegExp(skill, "i")),
+    };
+  }
+
+  if (minSalary || maxSalary) {
+    // Setting up for compensation range filtering
+    if (minSalary) {
+      filter["compensation.salary.min"] = { $gte: parseInt(minSalary) };
+    }
+    if (maxSalary) {
+      // If we have both min and max, we should apply max to the max field of the job document
+      filter["compensation.salary.max"] = { $lte: parseInt(maxSalary) };
+    } // If both are present, we look for jobs where min_job <= max_query AND max_job >= min_query (simplified logic here)
+  }
+
   if (companyId) {
-    query.companyId = companyId;
+    filter.companyId = companyId;
   }
 
-  try {
-    // Get total count for pagination
-    const total = await Job.countDocuments(query);
+  const jobs = await Job.find(filter)
+    .populate({
+      path: "companyId",
+      select: "companyName logo industry location companySize",
+    })
+    .sort({ postedAt: -1 })
+    .limit(limit * 1)
+    .skip((page - 1) * limit);
 
-    // Build sort object
-    const sort = {};
-    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+  const total = await Job.countDocuments(filter);
 
-    // Execute paginated query
-    const jobs = await Job.find(query)
-      .populate('companyId', 'name profile avatar')
-      .sort(sort)
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+  console.log("DEBUG: Found", jobs.length, "jobs out of", total, "total");
 
-    // Format response
-    const jobsData = jobs.map(job => ({
-      id: job._id,
-      title: job.title,
-      description: job.description,
-      requirements: job.requirements,
-      compensation: job.compensation,
-      jobType: job.jobType,
-      status: job.status,
-      applicationDeadline: job.applicationDeadline,
-      tags: job.tags,
-      company: job.companyId,
-      applicantsCount: job.applicants.length,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt
-    }));
-
-    const paginatedResponse = formatPaginationResponse(jobsData, page, limit, total);
-
-    return successResponse(res, paginatedResponse, 'Jobs retrieved successfully');
-  } catch (error) {
-    console.error('Jobs retrieval error:', error);
-    return errorResponse(res, 'Failed to retrieve jobs', 500);
-  }
+  return successResponse(
+    res,
+    {
+      jobs,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total: total,
+      },
+    },
+    "Jobs retrieved successfully"
+  );
 });
 
-// Get specific job by ID
+// Get single job by ID (compatible with frontend API)
 const getJobById = asyncHandler(async (req, res) => {
-  const { jobId } = req.params;
+  const { id } = req.params;
 
-  const job = await Job.findById(jobId)
-    .populate('companyId', 'name profile avatar')
-    .populate({
-      path: 'applicants.studentId',
-      select: 'name email profile avatar'
-    });
+  const job = await Job.findById(id).populate({
+    path: "companyId",
+    select:
+      "companyName logo industry location companySize description website socialLinks",
+  });
 
   if (!job) {
-    return errorResponse(res, 'Job not found', 404);
-  }
+    return errorResponse(res, "Job not found", 404);
+  } // Increment view count
 
-  // Check if current user has applied (for students)
-  let hasApplied = false;
-  let applicationStatus = null;
+  job.stats.views = (job.stats.views || 0) + 1;
+  await job.save();
 
-  if (req.user && req.user.role === 'student') {
-    const application = job.applicants.find(
-      app => app.studentId._id.toString() === req.user.id
-    );
-    hasApplied = !!application;
-    applicationStatus = application?.status || null;
-  }
-
-  return successResponse(res, {
-    job: {
-      id: job._id,
-      title: job.title,
-      description: job.description,
-      requirements: job.requirements,
-      compensation: job.compensation,
-      jobType: job.jobType,
-      status: job.status,
-      applicationDeadline: job.applicationDeadline,
-      tags: job.tags,
-      company: job.companyId,
-      applicants: req.user?.role === 'company' && req.user.id === job.companyId._id.toString() 
-        ? job.applicants 
-        : [],
-      applicantsCount: job.applicants.length,
-      hasApplied,
-      applicationStatus,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt
-    }
-  }, 'Job retrieved successfully');
+  return successResponse(res, job, "Job retrieved successfully");
 });
 
-// Get jobs recommended for a student
-const getRecommendedJobs = asyncHandler(async (req, res) => {
-  const studentId = req.params.studentId || req.user.id;
-  const { limit = 10 } = req.query;
+// Get job statistics (company endpoint)
+const getJobStats = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
 
-  // Check if user is accessing their own recommendations
-  if (req.user.id !== studentId && req.user.role !== 'company') {
-    return errorResponse(res, 'Access denied', 403);
+  const job = await Job.findOne({ _id: id, companyId: userId });
+  if (!job) {
+    return errorResponse(res, "Job not found or access denied", 404);
   }
 
+  const [totalApplications, newApplications, inReview, interviewed, hired] =
+    await Promise.all([
+      Application.countDocuments({ jobId: id }),
+      Application.countDocuments({
+        jobId: id,
+        appliedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }, // Last 7 days
+      }),
+      Application.countDocuments({
+        jobId: id,
+        status: { $in: ["applied", "under-review"] },
+      }),
+      Application.countDocuments({
+        jobId: id,
+        status: { $in: ["interview-scheduled", "interviewing", "final-round"] },
+      }),
+      Application.countDocuments({
+        jobId: id,
+        status: "hired",
+      }),
+    ]);
+
+  const stats = {
+    totalApplications,
+    newApplications,
+    inReview,
+    interviewed,
+    hired,
+    views: job.stats.views || 0,
+  };
+
+  return successResponse(res, stats, "Job statistics retrieved successfully");
+});
+
+// Toggle job status (active/inactive)
+const toggleJobStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const job = await Job.findOne({ _id: id, companyId: userId });
+  if (!job) {
+    return errorResponse(res, "Job not found or access denied", 404);
+  }
+
+  job.status = job.status === "active" ? "inactive" : "active";
+  await job.save();
+
+  return successResponse(
+    res,
+    job,
+    `Job ${job.status === "active" ? "activated" : "deactivated"} successfully`
+  );
+});
+
+// Apply to a job (candidate endpoint)
+const applyToJob = asyncHandler(async (req, res) => {
+  const { jobId } = req.body;
+  const candidateId = req.user.id;
+
+  console.log("DEBUG: Candidate", candidateId, "applying to job", jobId); // Check if job exists and is active
+
+  const job = await Job.findById(jobId).populate("companyId");
+  if (!job) {
+    return errorResponse(res, "Job not found", 404);
+  }
+
+  if (job.status !== "active") {
+    return errorResponse(res, "Job is no longer active", 400);
+  } // Check if already applied
+
+  const existingApplication = await Application.findOne({
+    candidateId,
+    jobId,
+  });
+
+  if (existingApplication) {
+    return errorResponse(res, "You have already applied to this job", 400);
+  } // Create new application
+
+  const application = new Application({
+    candidateId,
+    jobId,
+    companyId: job.companyId._id,
+    status: "applied",
+    appliedAt: new Date(),
+  });
+
+  await application.save();
+
+  console.log("DEBUG: Application created successfully");
+  return successResponse(
+    res,
+    application,
+    "Application submitted successfully"
+  );
+});
+
+// Get jobs recommended for a candidate
+const getRecommendedJobs = asyncHandler(async (req, res) => {
+  const candidateId = req.user.id;
+  const { limit = 10 } = req.query;
+
   try {
-    // Get student's resume
-    const resume = await Resume.findOne({ userId: studentId, isProcessed: true });
+    // Get candidate's resume
+    const resume = await Resume.findOne({
+      userId: candidateId,
+      isProcessed: true,
+    });
 
     if (!resume) {
-      return errorResponse(res, 'Resume not found or not processed', 404);
-    }
+      return errorResponse(res, "Resume not found or not processed", 404);
+    } // Get active jobs
 
-    // Get active jobs
-    const jobs = await Job.find({ status: 'active' })
-      .populate('companyId', 'name profile avatar')
+    const jobs = await Job.find({ status: "active" })
+      .populate("companyId", "companyName logo industry location")
       .lean();
 
     if (jobs.length === 0) {
-      return successResponse(res, {
-        recommendedJobs: [],
-        message: 'No active jobs available'
-      }, 'No jobs found for recommendations');
-    }
+      return successResponse(
+        res,
+        {
+          recommendedJobs: [],
+          message: "No active jobs available",
+        },
+        "No jobs found for recommendations"
+      );
+    } // Simple skill matching for now (can be enhanced with jobMatcherService later)
 
-    // Find matching jobs
-    const matchingJobs = await jobMatcherService.findMatchingJobs(resume, jobs, parseInt(limit));
+    const candidateSkills = resume.parsedData?.skills || [];
+    const jobsWithScore = jobs.map((job) => {
+      const jobSkills = job.requirements?.skills || [];
+      const matchedSkills = candidateSkills.filter((skill) =>
+        jobSkills.some(
+          (jobSkill) =>
+            jobSkill.toLowerCase().includes(skill.toLowerCase()) ||
+            skill.toLowerCase().includes(jobSkill.toLowerCase())
+        )
+      );
+      const score =
+        jobSkills.length > 0
+          ? (matchedSkills.length / jobSkills.length) * 100
+          : 0;
+      return {
+        ...job,
+        matchScore: Math.round(score),
+        matchedSkills,
+      };
+    }); // Sort by match score and limit results
 
-    // Format response
-    const recommendedJobs = matchingJobs.map(match => ({
-      job: {
-        id: match.job._id,
-        title: match.job.title,
-        description: match.job.description,
-        requirements: match.job.requirements,
-        compensation: match.job.compensation,
-        jobType: match.job.jobType,
-        tags: match.job.tags,
-        company: match.job.companyId,
-        applicantsCount: match.job.applicants.length,
-        createdAt: match.job.createdAt
+    const recommendedJobs = jobsWithScore
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, limit);
+
+    return successResponse(
+      res,
+      {
+        recommendedJobs,
+        totalFound: recommendedJobs.length,
+        candidateSkills,
       },
-      matchScore: match.matchScore.overall,
-      matchDetails: match.details,
-      reasons: [
-        `${match.details.skillsMatch.toFixed(0)}% skills match`,
-        `${match.details.experienceMatch.toFixed(0)}% experience match`,
-        `${match.details.semanticSimilarity.toFixed(0)}% semantic similarity`
-      ]
-    }));
-
-    return successResponse(res, {
-      recommendedJobs,
-      totalFound: matchingJobs.length,
-      resumeAnalysis: {
-        skills: resume.parsedData?.skills?.length || 0,
-        experience: resume.parsedData?.experience?.length || 0,
-        overallScore: resume.aiAnalysis?.overallScore || 0
-      }
-    }, 'Job recommendations generated successfully');
-
-  } catch (error) {
-    console.error('Job recommendation error:', error);
-    return errorResponse(res, 'Failed to generate job recommendations', 500);
-  }
-});
-
-// Apply to a job (student only)
-const applyToJob = asyncHandler(async (req, res) => {
-  const { jobId } = req.params;
-  const studentId = req.user.id;
-
-  try {
-    // Get job and student's resume
-    const [job, resume] = await Promise.all([
-      Job.findById(jobId),
-      Resume.findOne({ userId: studentId, isProcessed: true })
-    ]);
-
-    if (!job) {
-      return errorResponse(res, 'Job not found', 404);
-    }
-
-    if (job.status !== 'active') {
-      return errorResponse(res, 'Job is no longer active', 400);
-    }
-
-    if (!resume) {
-      return errorResponse(res, 'Please upload and process your resume before applying', 400);
-    }
-
-    // Check if already applied
-    const existingApplication = job.applicants.find(
-      app => app.studentId.toString() === studentId
+      "Job recommendations generated successfully"
     );
-
-    if (existingApplication) {
-      return errorResponse(res, 'You have already applied to this job', 400);
-    }
-
-    // Calculate match score
-    const matchScore = await jobMatcherService.calculateJobMatchScore(resume, job);
-
-    // Add application
-    job.applicants.push({
-      studentId,
-      matchScore: matchScore.overall,
-      appliedAt: new Date()
-    });
-
-    await job.save();
-
-    return successResponse(res, {
-      jobId: job._id,
-      jobTitle: job.title,
-      matchScore: matchScore.overall,
-      applicationStatus: 'applied',
-      appliedAt: new Date()
-    }, 'Application submitted successfully', 201);
-
   } catch (error) {
-    console.error('Job application error:', error);
-    return errorResponse(res, 'Failed to submit application', 500);
+    console.error("Job recommendation error:", error);
+    return errorResponse(res, "Failed to generate job recommendations", 500);
   }
 });
 
-// Update job posting (company only)
+// Update job (company endpoint - compatible with frontend API)
 const updateJob = asyncHandler(async (req, res) => {
-  const { jobId } = req.params;
-  const companyId = req.user.id;
+  const { id } = req.params;
+  const userId = req.user.id;
   const updateData = req.body;
 
-  try {
-    const job = await Job.findOne({ _id: jobId, companyId });
-
-    if (!job) {
-      return errorResponse(res, 'Job not found or access denied', 404);
-    }
-
-    // Update job fields
-    Object.keys(updateData).forEach(key => {
-      if (key !== 'companyId' && key !== 'applicants') {
-        job[key] = updateData[key];
-      }
-    });
-
-    // Regenerate embeddings if job content changed
-    if (updateData.title || updateData.description || updateData.requirements) {
-      const embedding = await jobMatcherService.generateJobEmbeddings(job);
-      job.embedding = embedding;
-    }
-
-    await job.save();
-    await job.populate('companyId', 'name profile');
-
-    return successResponse(res, {
-      job: {
-        id: job._id,
-        title: job.title,
-        description: job.description,
-        requirements: job.requirements,
-        compensation: job.compensation,
-        jobType: job.jobType,
-        status: job.status,
-        applicationDeadline: job.applicationDeadline,
-        tags: job.tags,
-        company: job.companyId,
-        applicants: job.applicants,
-        updatedAt: job.updatedAt
-      }
-    }, 'Job updated successfully');
-
-  } catch (error) {
-    console.error('Job update error:', error);
-    return errorResponse(res, 'Failed to update job', 500);
-  }
-});
-
-// Delete job posting (company only)
-const deleteJob = asyncHandler(async (req, res) => {
-  const { jobId } = req.params;
-  const companyId = req.user.id;
-
-  const job = await Job.findOne({ _id: jobId, companyId });
-
+  const job = await Job.findOne({ _id: id, companyId: userId });
   if (!job) {
-    return errorResponse(res, 'Job not found or access denied', 404);
+    return errorResponse(res, "Job not found or access denied", 404);
   }
 
-  await Job.findByIdAndDelete(jobId);
+  Object.keys(updateData).forEach((key) => {
+    if (key !== "companyId" && key !== "postedAt") {
+      // Don't allow these to be changed
+      job[key] = updateData[key];
+    }
+  });
 
-  return successResponse(res, null, 'Job deleted successfully');
+  await job.save();
+
+  return successResponse(res, job, "Job updated successfully");
 });
 
-// Get company's jobs
+// Delete job (company endpoint - compatible with frontend API)
+const deleteJob = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const job = await Job.findOne({ _id: id, companyId: userId });
+  if (!job) {
+    return errorResponse(res, "Job not found or access denied", 404);
+  }
+
+  await Job.findByIdAndDelete(id);
+
+  return successResponse(res, null, "Job deleted successfully");
+});
+
+// Get company's jobs (company endpoint - compatible with frontend API)
 const getCompanyJobs = asyncHandler(async (req, res) => {
-  const companyId = req.user.id;
+  const userId = req.user.id;
   const { page = 1, limit = 10, status } = req.query;
 
-  const query = { companyId };
-  if (status) query.status = status;
-
-  try {
-    const total = await Job.countDocuments(query);
-    
-    const jobs = await Job.find(query)
-      .populate('companyId', 'name profile')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    const jobsData = jobs.map(job => ({
-      id: job._id,
-      title: job.title,
-      description: job.description,
-      requirements: job.requirements,
-      compensation: job.compensation,
-      jobType: job.jobType,
-      status: job.status,
-      applicationDeadline: job.applicationDeadline,
-      tags: job.tags,
-      applicantsCount: job.applicants.length,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt
-    }));
-
-    const paginatedResponse = formatPaginationResponse(jobsData, page, limit, total);
-
-    return successResponse(res, paginatedResponse, 'Company jobs retrieved successfully');
-  } catch (error) {
-    console.error('Company jobs retrieval error:', error);
-    return errorResponse(res, 'Failed to retrieve company jobs', 500);
+  const filter = { companyId: userId };
+  if (status) {
+    filter.status = status;
   }
+
+  const jobs = await Job.find(filter)
+    .sort({ postedAt: -1 })
+    .limit(limit * 1)
+    .skip((page - 1) * limit);
+
+  const total = await Job.countDocuments(filter); // Get application stats for each job
+
+  const jobsWithStats = await Promise.all(
+    jobs.map(async (job) => {
+      const applicationCount = await Application.countDocuments({
+        jobId: job._id,
+      });
+      return {
+        ...job.toObject(),
+        applicationCount,
+      };
+    })
+  );
+
+  return successResponse(
+    res,
+    {
+      jobs: jobsWithStats,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total: total,
+      },
+    },
+    "Company jobs retrieved successfully"
+  );
 });
 
-// Update application status (company only)
-const updateApplicationStatus = asyncHandler(async (req, res) => {
-  const { jobId, studentId } = req.params;
-  const { status } = req.body;
+// Get matched jobs for candidates
+const getMatchedJobs = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+  const candidateId = req.user.id;
+
+  // Get candidate profile for matching
+  const candidate = await Candidate.findOne({ userId: candidateId });
+  if (!candidate) {
+    return errorResponse(res, "Candidate profile not found", 404);
+  }
+
+  // Basic matching based on skills
+  const candidateSkills = candidate.skills.map(skill => skill.name.toLowerCase());
+  
+  const jobs = await Job.find({
+    status: 'active',
+    'requirements.skills.name': { 
+      $in: candidateSkills.map(skill => new RegExp(skill, 'i')) 
+    }
+  })
+  .populate({
+    path: "companyId",
+    select: "companyName logo industry location"
+  })
+  .limit(limit * 1)
+  .skip((page - 1) * limit)
+  .sort({ createdAt: -1 });
+
+  const total = await Job.countDocuments({
+    status: 'active',
+    'requirements.skills.name': { 
+      $in: candidateSkills.map(skill => new RegExp(skill, 'i')) 
+    }
+  });
+
+  return successResponse(
+    res,
+    {
+      jobs,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total: total,
+      },
+    },
+    "Matched jobs retrieved successfully"
+  );
+});
+
+// Get enhanced matched jobs with scoring
+const getEnhancedMatchedJobs = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+  const candidateId = req.user.id;
+
+  // Get candidate profile
+  const candidate = await Candidate.findOne({ userId: candidateId });
+  if (!candidate) {
+    return errorResponse(res, "Candidate profile not found", 404);
+  }
+
+  // Get all active jobs
+  const jobs = await Job.find({ status: 'active' })
+    .populate({
+      path: "companyId",
+      select: "companyName logo industry location"
+    })
+    .sort({ createdAt: -1 });
+
+  // Calculate match scores
+  const candidateSkills = candidate.skills.map(skill => skill.name.toLowerCase());
+  const jobsWithScores = jobs.map(job => {
+    let score = 0;
+    const jobSkills = job.requirements.skills.map(skill => skill.name.toLowerCase());
+    
+    // Skill matching
+    const matchingSkills = candidateSkills.filter(skill => 
+      jobSkills.some(jobSkill => jobSkill.includes(skill) || skill.includes(jobSkill))
+    );
+    score += (matchingSkills.length / Math.max(jobSkills.length, 1)) * 60;
+
+    // Experience level matching
+    if (candidate.experience && job.requirements.experience) {
+      const candidateYears = candidate.experience.reduce((total, exp) => total + (exp.years || 0), 0);
+      const requiredYears = job.requirements.experience.minYears || 0;
+      if (candidateYears >= requiredYears) {
+        score += 20;
+      }
+    }
+
+    // Location preference (placeholder)
+    score += 10;
+
+    return {
+      ...job.toObject(),
+      matchScore: Math.round(score)
+    };
+  });
+
+  // Sort by match score and paginate
+  const sortedJobs = jobsWithScores
+    .filter(job => job.matchScore > 30)
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .slice((page - 1) * limit, page * limit);
+
+  const total = jobsWithScores.filter(job => job.matchScore > 30).length;
+
+  return successResponse(
+    res,
+    {
+      jobs: sortedJobs,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total: total,
+      },
+    },
+    "Enhanced matched jobs retrieved successfully"
+  );
+});
+
+// Get job applications for a specific job (company only)
+const getJobApplications = asyncHandler(async (req, res) => {
+  const { id: jobId } = req.params;
+  const { page = 1, limit = 10, status } = req.query;
   const companyId = req.user.id;
 
-  const validStatuses = ['applied', 'reviewed', 'interviewed', 'rejected', 'hired'];
-  if (!validStatuses.includes(status)) {
-    return errorResponse(res, 'Invalid status', 400);
+  // Verify job belongs to company
+  const job = await Job.findOne({ _id: jobId, companyId });
+  if (!job) {
+    return errorResponse(res, "Job not found or unauthorized", 404);
   }
 
-  try {
-    const job = await Job.findOne({ _id: jobId, companyId });
-
-    if (!job) {
-      return errorResponse(res, 'Job not found or access denied', 404);
-    }
-
-    const applicationIndex = job.applicants.findIndex(
-      app => app.studentId.toString() === studentId
-    );
-
-    if (applicationIndex === -1) {
-      return errorResponse(res, 'Application not found', 404);
-    }
-
-    job.applicants[applicationIndex].status = status;
-    await job.save();
-
-    return successResponse(res, {
-      jobId,
-      studentId,
-      newStatus: status,
-      updatedAt: new Date()
-    }, 'Application status updated successfully');
-
-  } catch (error) {
-    console.error('Application status update error:', error);
-    return errorResponse(res, 'Failed to update application status', 500);
+  // Build filter
+  const filter = { jobId };
+  if (status) {
+    filter.status = status;
   }
+
+  const applications = await Application.find(filter)
+    .populate({
+      path: 'candidateId',
+      select: 'firstName lastName email phone skills experience education'
+    })
+    .populate({
+      path: 'jobId',
+      select: 'title'
+    })
+    .limit(limit * 1)
+    .skip((page - 1) * limit)
+    .sort({ appliedAt: -1 });
+
+  const total = await Application.countDocuments(filter);
+
+  return successResponse(
+    res,
+    {
+      applications,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total: total,
+      },
+    },
+    "Job applications retrieved successfully"
+  );
 });
 
 module.exports = {
-  createJob,
-  getJobs,
+  getAllJobs,
   getJobById,
-  getRecommendedJobs,
-  applyToJob,
+  createJob,
   updateJob,
   deleteJob,
   getCompanyJobs,
-  updateApplicationStatus
+  getJobStats,
+  toggleJobStatus,
+  getRecommendedJobs,
+  applyToJob,
+  getMatchedJobs,
+  getEnhancedMatchedJobs,
+  getJobApplications,
 };

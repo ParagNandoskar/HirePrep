@@ -1,10 +1,6 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const connectDB = require('./src/config/database');
@@ -13,8 +9,33 @@ const app = require('./src/app');
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: function (origin, callback) {
+      // Allow requests with no origin
+      if (!origin) return callback(null, true);
+      
+      // In development, allow localhost on any port
+      if (process.env.NODE_ENV !== 'production') {
+        if (origin.match(/^https?:\/\/localhost(:\d+)?$/)) {
+          return callback(null, true);
+        }
+      }
+      
+      // Allow specific origins
+      const allowedOrigins = [
+        process.env.FRONTEND_URL || "http://localhost:3000",
+        "http://localhost:5173", // Vite default port
+        "http://localhost:3000", // React default port
+        "http://localhost:8080", // Alternative port
+      ];
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 

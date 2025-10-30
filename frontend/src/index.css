@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  /* Primary Colors */
+  --color-primary: #001D3D;
+  --color-secondary: #003566;
+  --color-tertiary: #FFC300;
+  --color-text: #000814;
+  
+  /* Background Colors */
+  --color-bg-primary: #F8F9FA;
+  --color-bg-secondary: #EAEAEA;
+  --color-bg-tertiary: #FFF9E6;
+  
+  /* Text Colors */
+  --color-text-light: #495057;
+  --color-text-muted: #6C757D;
+}
+
+/* Custom utility classes */
+.text-primary { color: var(--color-primary); }
+.text-secondary { color: var(--color-secondary); }
+.text-tertiary { color: var(--color-tertiary); }
+.text-custom { color: var(--color-text); }
+
+.bg-primary { background-color: var(--color-primary); }
+.bg-secondary { background-color: var(--color-secondary); }
+.bg-tertiary { background-color: var(--color-tertiary); }
+.bg-custom-primary { background-color: var(--color-bg-primary); }
+.bg-custom-secondary { background-color: var(--color-bg-secondary); }
+.bg-custom-tertiary { background-color: var(--color-bg-tertiary); }
+
+/* Button hover states */
+.hover\:bg-primary-900:hover { background-color: var(--color-primary); filter: brightness(0.9); }
+.hover\:bg-secondary-900:hover { background-color: var(--color-secondary); filter: brightness(0.9); }
+.hover\:bg-tertiary-900:hover { background-color: var(--color-tertiary); filter: brightness(0.9); }
