@@ -52,7 +52,19 @@ const ExploreJobs = () => {
   // Load jobs on component mount and when filters change
   useEffect(() => {
     loadJobs()
-  }, [filters.search, filters.location, pagination.current, showOnlyMatched, useEnhancedMatching])
+  }, [
+    filters.search, 
+    filters.location, 
+    filters.datePosted,
+    filters.jobType,
+    filters.salaryRange,
+    filters.workMode,
+    filters.experienceLevel,
+    filters.skills,
+    pagination.current, 
+    showOnlyMatched, 
+    useEnhancedMatching
+  ])
 
   // Filter jobs is now handled by backend, so this effect can be removed or simplified
   useEffect(() => {
@@ -64,19 +76,30 @@ const ExploreJobs = () => {
 
   const loadCandidateSkills = async () => {
     try {
+      console.log('🔍 Loading candidate skills...');
       const response = await candidatesAPI.getProfile()
+      console.log('👤 Candidate profile response:', response);
       
-      if (response && response.skills) {
+      if (response && response.data && response.data.skills) {
         // Extract skill names from skills array (could be objects or strings)
+        const skillNames = response.data.skills.map(skill => 
+          typeof skill === 'string' ? skill.toLowerCase() : skill.name?.toLowerCase()
+        ).filter(Boolean)
+        console.log('🎯 Extracted candidate skills:', skillNames);
+        setCandidateSkills(skillNames)
+      } else if (response && response.skills) {
+        // Handle direct skills property
         const skillNames = response.skills.map(skill => 
           typeof skill === 'string' ? skill.toLowerCase() : skill.name?.toLowerCase()
         ).filter(Boolean)
+        console.log('🎯 Extracted candidate skills (direct):', skillNames);
         setCandidateSkills(skillNames)
       } else {
+        console.log('❌ No candidate skills found');
         setCandidateSkills([])
       }
     } catch (error) {
-      console.error('Error loading candidate skills:', error)
+      console.error('❌ Error loading candidate skills:', error)
       setCandidateSkills([])
     }
   }
@@ -91,20 +114,99 @@ const ExploreJobs = () => {
         limit: 10
       }
 
-      if (filters.search) params.search = filters.search
+      // Basic search and location
+      if (filters.search) params.keyword = filters.search
       if (filters.location) params.location = filters.location
-      if (filters.salaryMin) params.salaryMin = filters.salaryMin
-      if (filters.salaryMax) params.salaryMax = filters.salaryMax
+      
+      // Salary range filters
+      if (filters.salaryRange !== 'Custom') {
+        // Handle predefined salary ranges
+        switch (filters.salaryRange) {
+          case 'Under 1 LPA':
+            params.maxSalary = 100000
+            break
+          case '1 LPA - 10 LPA':
+            params.minSalary = 100000
+            params.maxSalary = 1000000
+            break
+          case '10 LPA - 25 LPA':
+            params.minSalary = 1000000
+            params.maxSalary = 2500000
+            break
+          case 'Above 25 LPA':
+            params.minSalary = 2500000
+            break
+        }
+      } else {
+        // Use custom salary range if provided
+        if (filters.salaryMin) params.minSalary = filters.salaryMin
+        if (filters.salaryMax) params.maxSalary = filters.salaryMax
+      }
+      
+      // Experience level filter
       if (filters.level) params.level = filters.level
+      
+      // Skills filter
       if (filters.skills) params.skills = filters.skills
 
-      // Add job type filters
+      // Job type filters - map frontend job types to backend format
       const activeJobTypes = Object.entries(filters.jobType)
         .filter(([key, value]) => value)
-        .map(([key]) => key)
+        .map(([key]) => {
+          // Map frontend keys to backend format
+          const typeMap = {
+            fullTime: 'full-time',
+            partTime: 'part-time',
+            internship: 'internship',
+            freelance: 'freelance'
+          }
+          return typeMap[key] || key
+        })
       if (activeJobTypes.length > 0) {
-        params.jobType = activeJobTypes[0] // For now, take the first one
+        params.type = activeJobTypes[0] // Backend expects single type for now
       }
+
+      // Work mode filters - map to backend location type
+      const activeWorkModes = Object.entries(filters.workMode)
+        .filter(([key, value]) => value)
+        .map(([key]) => {
+          // Map frontend keys to backend format
+          const modeMap = {
+            onSite: 'on-site',
+            hybrid: 'hybrid',
+            remote: 'remote'
+          }
+          return modeMap[key] || key
+        })
+      if (activeWorkModes.length > 0) {
+        // For work mode, we'll use the location type parameter
+        params.locationType = activeWorkModes[0]
+      }
+
+      // Date posted filter
+      if (filters.datePosted !== 'Anytime') {
+        const now = new Date()
+        let dateFilter
+        switch (filters.datePosted) {
+          case 'Last 24 hours':
+            dateFilter = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+            break
+          case 'Last 3 days':
+            dateFilter = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+            break
+          case 'Last week':
+            dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+            break
+          case 'Last month':
+            dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            break
+        }
+        if (dateFilter) {
+          params.postedAfter = dateFilter.toISOString()
+        }
+      }
+
+      console.log('🔍 API Parameters being sent:', params); // Debug log
 
       let response;
       if (showOnlyMatched) {
@@ -123,11 +225,17 @@ const ExploreJobs = () => {
         response = await jobsAPI.getAllJobs(params);
       }
       
-      setJobs(response.jobs || [])
-      setPagination(response.pagination || { current: 1, pages: 1, total: 0 })
+      console.log('🔍 ExploreJobs API Response:', response); // Debug log
+      
+      // Handle different response structures
+      const jobsData = response.data?.jobs || response.jobs || [];
+      const paginationData = response.data?.pagination || response.pagination || { current: 1, pages: 1, total: 0 };
+      
+      setJobs(jobsData)
+      setPagination(paginationData)
       
       // Update filteredJobs since we're now using backend filtering
-      setFilteredJobs(response.jobs || [])
+      setFilteredJobs(jobsData)
     } catch (error) {
       console.error('Error loading jobs:', error)
       addNotification({
@@ -473,9 +581,20 @@ const ExploreJobs = () => {
                 
                 {/* Additional info message */}
                 {showOnlyMatched && !loading && pagination.total === 0 && (
-                  <p className="text-orange-600 text-sm mt-2">
-                    No jobs found with at least 30% skill match. Try uploading a resume or adding more skills to your profile.
-                  </p>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-sm">
+                    <p className="text-orange-800 font-medium mb-2">
+                      No jobs found with at least 30% skill match.
+                    </p>
+                    <p className="text-orange-600 mb-3">
+                      Try uploading a resume or adding more skills to your profile.
+                    </p>
+                    <button 
+                      onClick={() => setShowOnlyMatched(false)}
+                      className="px-3 py-1 bg-orange-100 text-orange-800 rounded-md hover:bg-orange-200 transition-colors text-xs"
+                    >
+                      Show all available jobs instead
+                    </button>
+                  </div>
                 )}
               </div>
 

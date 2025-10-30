@@ -13,10 +13,10 @@ router.use(authenticate);
 router.post('/:id/apply', jobController.applyToJob);
 router.get('/:id/applications', authorize('company'), jobController.getJobApplications);
 
-// Job search and matching (candidate routes)
-router.get('/matched', authorize('candidate'), jobController.getMatchedJobs);
-router.get('/enhanced-matched', authorize('candidate'), jobController.getEnhancedMatchedJobs);
-router.get('/recommendations', authorize('candidate'), jobController.getRecommendedJobs);
+// Job search and matching (candidate routes - support both 'student' and 'candidate' roles)
+router.get('/matched', authorize('student'), jobController.getMatchedJobs);
+router.get('/enhanced-matched', authorize('student'), jobController.getEnhancedMatchedJobs);
+router.get('/recommendations', authorize('student'), jobController.getRecommendedJobs);
 
 // Company specific routes
 router.get('/company/my-jobs', authorize('company'), jobController.getCompanyJobs);

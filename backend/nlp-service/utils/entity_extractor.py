@@ -18,21 +18,90 @@ class EntityExtractor:
         self.nlp = nlp_model
         self.text_processor = TextProcessor()
         
-        # Common skill keywords and patterns
-        self.technical_skills = {
-            'programming': ['python', 'java', 'javascript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift', 'kotlin'],
-            'web': ['html', 'css', 'react', 'angular', 'vue', 'node', 'express', 'django', 'flask', 'spring'],
-            'database': ['sql', 'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch', 'oracle'],
-            'cloud': ['aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins'],
-            'data': ['pandas', 'numpy', 'sklearn', 'tensorflow', 'pytorch', 'matplotlib', 'tableau'],
-            'tools': ['git', 'jira', 'confluence', 'slack', 'trello', 'figma', 'photoshop']
+        # Comprehensive skill keywords across all domains
+        self.all_domain_skills = {
+            # Technical Skills
+            'programming': ['python', 'java', 'javascript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift', 'kotlin', 'r', 'matlab', 'scala', 'perl'],
+            'web': ['html', 'css', 'react', 'angular', 'vue', 'node', 'express', 'django', 'flask', 'spring', 'bootstrap', 'jquery', 'typescript'],
+            'database': ['sql', 'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch', 'oracle', 'sqlite', 'cassandra', 'dynamodb'],
+            'cloud': ['aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins', 'heroku', 'digitalocean', 'cloudflare'],
+            'data_science': ['pandas', 'numpy', 'sklearn', 'tensorflow', 'pytorch', 'matplotlib', 'tableau', 'power bi', 'excel', 'spss', 'sas'],
+            'tools': ['git', 'jira', 'confluence', 'slack', 'trello', 'figma', 'photoshop', 'illustrator', 'canva'],
+            
+            # Business & Finance Skills
+            'finance': ['accounting', 'bookkeeping', 'financial analysis', 'budgeting', 'forecasting', 'taxation', 'audit', 'compliance', 'risk management', 'investment analysis'],
+            'banking': ['banking', 'credit analysis', 'loan processing', 'portfolio management', 'derivatives', 'forex', 'treasury', 'regulatory compliance'],
+            'business_analysis': ['business analysis', 'requirements gathering', 'process improvement', 'stakeholder management', 'documentation', 'gap analysis'],
+            'consulting': ['consulting', 'strategy development', 'market research', 'competitive analysis', 'business planning', 'feasibility studies'],
+            
+            # Marketing & Sales Skills
+            'marketing': ['digital marketing', 'content marketing', 'social media marketing', 'email marketing', 'seo', 'sem', 'ppc', 'brand management'],
+            'sales': ['sales', 'lead generation', 'customer acquisition', 'account management', 'crm', 'salesforce', 'negotiation', 'closing'],
+            'advertising': ['advertising', 'campaign management', 'google ads', 'facebook ads', 'creative development', 'media planning', 'copywriting'],
+            
+            # Operations & Management Skills
+            'operations': ['operations management', 'supply chain', 'logistics', 'inventory management', 'quality control', 'process optimization'],
+            'project_management': ['project management', 'agile', 'scrum', 'waterfall', 'pmp', 'kanban', 'resource planning', 'risk assessment'],
+            'management': ['team management', 'leadership', 'strategic planning', 'performance management', 'change management', 'organizational development'],
+            
+            # HR & Administration Skills
+            'hr': ['human resources', 'recruitment', 'talent acquisition', 'employee relations', 'performance evaluation', 'compensation', 'benefits administration'],
+            'administration': ['administrative support', 'office management', 'scheduling', 'data entry', 'customer service', 'reception'],
+            
+            # Legal & Compliance Skills
+            'legal': ['legal research', 'contract management', 'compliance', 'regulatory affairs', 'intellectual property', 'litigation support'],
+            
+            # Healthcare Skills
+            'healthcare': ['patient care', 'medical coding', 'healthcare administration', 'clinical research', 'pharmacy', 'nursing', 'medical terminology'],
+            
+            # Education & Training Skills
+            'education': ['teaching', 'curriculum development', 'training', 'instructional design', 'e-learning', 'assessment', 'educational technology'],
+            
+            # Communication & Language Skills
+            'communication': ['communication', 'presentation', 'public speaking', 'writing', 'editing', 'proofreading', 'translation', 'interpretation'],
+            'languages': ['english', 'spanish', 'french', 'german', 'chinese', 'japanese', 'hindi', 'arabic', 'portuguese', 'italian', 'russian'],
+            
+            # Design & Creative Skills
+            'design': ['graphic design', 'ui design', 'ux design', 'web design', 'product design', 'branding', 'layout design', 'typography'],
+            'creative': ['photography', 'videography', 'animation', 'illustration', 'content creation', 'storytelling', 'creative writing'],
+            
+            # Research & Analysis Skills
+            'research': ['research', 'data analysis', 'statistical analysis', 'market research', 'academic research', 'survey design', 'report writing'],
+            
+            # Industry-Specific Skills
+            'retail': ['retail management', 'merchandising', 'inventory control', 'customer service', 'point of sale', 'loss prevention'],
+            'manufacturing': ['manufacturing', 'production planning', 'quality assurance', 'lean manufacturing', 'six sigma', 'process engineering'],
+            'real_estate': ['real estate', 'property management', 'appraisal', 'leasing', 'property valuation', 'market analysis'],
+            
+            # Soft Skills (Important for all domains)
+            'soft_skills': ['teamwork', 'leadership', 'problem solving', 'critical thinking', 'adaptability', 'time management', 'multitasking', 'attention to detail']
         }
         
-        # Education keywords
+        # Education keywords - expanded to include all domains
         self.education_keywords = {
-            'degrees': ['bachelor', 'master', 'phd', 'doctorate', 'associate', 'diploma', 'certificate'],
-            'fields': ['computer science', 'engineering', 'business', 'marketing', 'finance', 'psychology'],
-            'institutions': ['university', 'college', 'institute', 'school']
+            'degrees': ['bachelor', 'master', 'phd', 'doctorate', 'associate', 'diploma', 'certificate', 'bcom', 'bba', 'mba', 'btech', 'mtech', 'bsc', 'msc', 'ba', 'ma'],
+            'fields': [
+                # Business & Commerce
+                'commerce', 'business administration', 'business management', 'finance', 'accounting', 'economics', 'marketing', 'international business',
+                'banking', 'insurance', 'human resources', 'operations management', 'supply chain management', 'entrepreneurship',
+                # Technology & Engineering  
+                'computer science', 'information technology', 'software engineering', 'computer engineering', 'electrical engineering', 'mechanical engineering',
+                'civil engineering', 'chemical engineering', 'electronics', 'telecommunications', 'data science', 'artificial intelligence',
+                # Science & Mathematics
+                'mathematics', 'statistics', 'physics', 'chemistry', 'biology', 'biotechnology', 'environmental science',
+                # Liberal Arts & Social Sciences
+                'psychology', 'sociology', 'political science', 'history', 'english literature', 'linguistics', 'philosophy',
+                'journalism', 'mass communication', 'public relations', 'advertising',
+                # Healthcare & Medicine
+                'medicine', 'nursing', 'pharmacy', 'physiotherapy', 'dentistry', 'veterinary science', 'medical technology',
+                # Law & Legal Studies
+                'law', 'legal studies', 'criminology', 'international law',
+                # Education
+                'education', 'teaching', 'educational technology', 'curriculum development',
+                # Design & Arts
+                'graphic design', 'interior design', 'fashion design', 'fine arts', 'architecture', 'industrial design'
+            ],
+            'institutions': ['university', 'college', 'institute', 'school', 'academy', 'polytechnic', 'iit', 'iim', 'nit']
         }
         
         # Certification patterns
@@ -74,17 +143,29 @@ class EntityExtractor:
         return contact_info
     
     def extract_skills(self, text: str) -> List[str]:
-        """Extract technical and soft skills from text with word boundary checking"""
+        """Extract skills from all domains with word boundary checking"""
         skills = set()
         text_lower = text.lower()
         
-        # Extract technical skills with word boundaries to avoid partial matches
-        for category, skill_list in self.technical_skills.items():
+        # Extract skills from all domain categories with word boundaries
+        for category, skill_list in self.all_domain_skills.items():
             for skill in skill_list:
-                # Use word boundaries to ensure exact matches
-                pattern = r'\b' + re.escape(skill) + r'\b'
+                # Use word boundaries to ensure exact matches for single words
+                if ' ' in skill:
+                    # For multi-word skills, use a more flexible pattern
+                    pattern = r'\b' + re.escape(skill.replace(' ', r'\s+')) + r'\b'
+                else:
+                    # For single words, use strict word boundaries
+                    pattern = r'\b' + re.escape(skill) + r'\b'
+                
                 if re.search(pattern, text_lower):
-                    skills.add(skill.title())
+                    # Preserve original casing for well-known terms
+                    if skill.upper() in ['SQL', 'HTML', 'CSS', 'API', 'UI', 'UX', 'SEO', 'SEM', 'PPC', 'CRM', 'ERP', 'HR']:
+                        skills.add(skill.upper())
+                    elif skill in ['JavaScript', 'TypeScript', 'PowerBI', 'PowerPoint', 'LinkedIn']:
+                        skills.add(skill)
+                    else:
+                        skills.add(skill.title())
         
         # Extract skills from dedicated skills section first (most reliable)
         skill_section = self._extract_skills_section(text)
@@ -92,14 +173,56 @@ class EntityExtractor:
             section_skills = self._parse_skills_section(skill_section)
             skills.update(section_skills)
         
+        # Enhanced pattern matching for common business and commerce skills
+        commerce_patterns = [
+            r'\b(?:microsoft\s+)?excel\b',
+            r'\b(?:microsoft\s+)?word\b', 
+            r'\b(?:microsoft\s+)?powerpoint\b',
+            r'\b(?:microsoft\s+)?office\b',
+            r'\bquickbooks\b',
+            r'\btally\b',
+            r'\bsap\b',
+            r'\berp\b',
+            r'\bcrm\b',
+            r'\bgst\b',
+            r'\btds\b',
+            r'\btax\s+preparation\b',
+            r'\bpayroll\b',
+            r'\binvoicing\b',
+            r'\baccounts\s+(?:payable|receivable)\b',
+            r'\bfinancial\s+reporting\b',
+            r'\bbudget\s+analysis\b',
+            r'\bcost\s+accounting\b',
+            r'\bmanagement\s+accounting\b',
+            r'\baudit\b',
+            r'\bcompliance\b',
+            r'\bbusiness\s+development\b',
+            r'\bmarket\s+research\b',
+            r'\bcustomer\s+service\b',
+            r'\bdata\s+entry\b',
+            r'\badministrative\s+support\b'
+        ]
+        
+        for pattern in commerce_patterns:
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                skill_text = match.group(0).strip()
+                # Clean up and title case the skill
+                skill_text = re.sub(r'\s+', ' ', skill_text).title()
+                skills.add(skill_text)
+        
         # Use spaCy NER to find additional skills (but filter more carefully)
         if self.nlp:
             doc = self.nlp(text)
             for ent in doc.ents:
-                if ent.label_ in ['PRODUCT'] and len(ent.text) > 2:
-                    # Only include if it's clearly a technical term and not a partial word
-                    if self._is_technical_term(ent.text) and self._is_standalone_skill(ent.text, text):
-                        skills.add(ent.text)
+                if ent.label_ in ['PRODUCT', 'ORG'] and len(ent.text) > 2:
+                    # Check if it could be a skill (not a company name or location)
+                    if self._is_potential_skill(ent.text) and self._is_standalone_skill(ent.text, text):
+                        skills.add(ent.text.title())
+        
+        # Additional extraction for certification-like skills
+        cert_skills = self._extract_certification_skills(text)
+        skills.update(cert_skills)
         
         return list(skills)
     
@@ -263,22 +386,59 @@ class EntityExtractor:
         match = re.search(linkedin_pattern, text, re.IGNORECASE)
         return match.group(0) if match else ""
     
-    def _is_technical_term(self, term: str) -> bool:
-        """Check if a term is likely a technical skill"""
-        technical_indicators = ['js', 'api', 'sdk', 'framework', 'library', 'database', 'server']
+    def _is_potential_skill(self, term: str) -> bool:
+        """Check if a term could be a skill (broader than just technical)"""
+        # Exclude obvious company names, locations, and common words
+        excluded_terms = ['inc', 'ltd', 'corp', 'llc', 'university', 'college', 'company', 'corporation']
         term_lower = term.lower()
         
-        # Check if it's in our skill lists
-        for category, skills in self.technical_skills.items():
-            if term_lower in skills:
+        # Exclude if it's clearly not a skill
+        if any(excluded in term_lower for excluded in excluded_terms):
+            return False
+        
+        # Check if it's in our comprehensive skill lists
+        for category, skills in self.all_domain_skills.items():
+            if term_lower in [skill.lower() for skill in skills]:
                 return True
         
-        # Check for technical indicators
-        for indicator in technical_indicators:
-            if indicator in term_lower:
+        # Check for software/tool patterns
+        software_patterns = [
+            r'\w+(?:soft|ware|sys|tech)$',  # Software, hardware, system, tech
+            r'(?:microsoft|adobe|google|oracle)\s+\w+',  # Brand + product
+            r'\w+(?:book|base|point|excel|word)$',  # Common software endings
+        ]
+        
+        for pattern in software_patterns:
+            if re.search(pattern, term_lower):
                 return True
         
         return False
+    
+    def _extract_certification_skills(self, text: str) -> List[str]:
+        """Extract skills from certifications and courses"""
+        cert_skills = set()
+        
+        # Look for certification patterns that indicate skills
+        cert_patterns = [
+            r'certified\s+in\s+([^,\n]+)',
+            r'certification\s+in\s+([^,\n]+)',
+            r'course\s+in\s+([^,\n]+)',
+            r'training\s+in\s+([^,\n]+)',
+            r'diploma\s+in\s+([^,\n]+)',
+            r'specialist\s+in\s+([^,\n]+)',
+        ]
+        
+        for pattern in cert_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                skill = match.group(1).strip()
+                # Clean up the skill name
+                skill = re.sub(r'\s+', ' ', skill)
+                skill = re.sub(r'[^\w\s-]', '', skill)
+                if len(skill) > 2 and len(skill) < 50:
+                    cert_skills.add(skill.title())
+        
+        return list(cert_skills)
     
     def _is_standalone_skill(self, skill: str, text: str) -> bool:
         """Check if a skill mention is standalone and not part of another word"""
@@ -337,9 +497,31 @@ class EntityExtractor:
             item = re.sub(r'[^a-zA-Z0-9\s\.\+\#-]+$', '', item).strip() 
             item = re.sub(r'^\s*[-•*#\s]+', '', item).strip()
 
-            # Check against a common list for single-word filtering
-            if len(item) > 1 and len(item) < 40 and any(char.isalpha() for char in item):
-                skills.add(item.title()) # Use .title() to unify case (e.g. 'css' -> 'Css', 'CSS' -> 'Css')
+            # Enhanced validation for all types of skills (not just technical)
+            if len(item) > 1 and len(item) < 50 and any(char.isalpha() for char in item):
+                # Check if it's a known skill from our comprehensive list
+                item_lower = item.lower()
+                is_known_skill = False
+                
+                for category, skill_list in self.all_domain_skills.items():
+                    if item_lower in [skill.lower() for skill in skill_list]:
+                        is_known_skill = True
+                        break
+                
+                # If it's a known skill, use proper casing
+                if is_known_skill:
+                    # Find the proper casing from our skill lists
+                    for category, skill_list in self.all_domain_skills.items():
+                        for skill in skill_list:
+                            if skill.lower() == item_lower:
+                                if skill.upper() in ['SQL', 'HTML', 'CSS', 'API', 'UI', 'UX', 'SEO', 'SEM', 'PPC', 'CRM', 'ERP', 'HR', 'GST', 'TDS']:
+                                    skills.add(skill.upper())
+                                else:
+                                    skills.add(skill.title())
+                                break
+                else:
+                    # For unknown skills, apply smart title casing
+                    skills.add(item.title())
         
         return list(skills)
     

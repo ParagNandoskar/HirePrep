@@ -210,6 +210,59 @@ const uploadResume = asyncHandler(async (req, res) => {
       };
     }
 
+    // Sanitize parsed data to ensure it matches the schema
+    const sanitizeParsedData = (data) => {
+      if (!data) return data;
+      
+      // Sanitize certifications - ensure they are objects, not strings
+      if (data.certifications) {
+        data.certifications = data.certifications.map(cert => {
+          if (typeof cert === 'string') {
+            return {
+              name: cert,
+              issuer: '',
+              issueDate: '',
+              expiryDate: '',
+              credentialId: ''
+            };
+          }
+          return cert;
+        });
+      }
+      
+      // Sanitize skills to ensure proper structure
+      if (data.skills) {
+        data.skills = data.skills.map(skill => {
+          if (typeof skill === 'string') {
+            return {
+              name: skill,
+              level: 'Intermediate',
+              yearsOfExperience: 0
+            };
+          }
+          return skill;
+        });
+      }
+      
+      // Sanitize languages
+      if (data.languages) {
+        data.languages = data.languages.map(lang => {
+          if (typeof lang === 'string') {
+            return {
+              name: lang,
+              proficiency: 'Intermediate'
+            };
+          }
+          return lang;
+        });
+      }
+      
+      return data;
+    };
+
+    // Apply sanitization
+    parsedData = sanitizeParsedData(parsedData);
+
     // Check if user already has a resume and update or create new
     let resume = await Resume.findOne({ userId });
 
@@ -558,11 +611,13 @@ const updateResumeData = asyncHandler(async (req, res) => {
 // Delete resume
 const deleteResume = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const resumeId = req.params.id;
 
-  const resume = await Resume.findOne({ userId });
+  // Find resume by ID and ensure it belongs to the authenticated user
+  const resume = await Resume.findOne({ _id: resumeId, userId });
 
   if (!resume) {
-    return errorResponse(res, 'Resume not found', 404);
+    return errorResponse(res, 'Resume not found or you do not have permission to delete it', 404);
   }
 
   try {

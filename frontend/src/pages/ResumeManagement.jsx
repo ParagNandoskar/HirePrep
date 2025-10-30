@@ -3,6 +3,7 @@ import { HiDownload, HiTrash, HiEye, HiPlus } from 'react-icons/hi'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
 import Button from '../components/ui/Button'
+import ConfirmationDialog from '../components/ui/ConfirmationDialog'
 import { useAuth } from '../context/AuthContext'
 import { useApp } from '../context/AppContext'
 import { resumeAPI } from '../services/api'
@@ -18,6 +19,26 @@ const ResumeManagement = () => {
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [hasProcessingResumes, setHasProcessingResumes] = useState(false)
+  const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, resume: null })
+
+  // Add error boundary protection
+  useEffect(() => {
+    const handleError = (error) => {
+      console.error('⚠️ Unhandled error in ResumeManagement:', error)
+      addNotification({
+        type: 'error',
+        message: 'An unexpected error occurred. Please refresh the page.'
+      })
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleError)
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleError)
+    }
+  }, [])
 
   // Load resumes on component mount
   useEffect(() => {
@@ -231,28 +252,66 @@ const ResumeManagement = () => {
   }
 
   const handleDelete = async (resume) => {
-    if (!window.confirm('Are you sure you want to delete this resume?')) {
+    try {
+      console.log('🗑️ Starting delete process for:', resume.filename || resume.originalName)
+      setDeleteDialog({ isOpen: true, resume })
+    } catch (error) {
+      console.error('❌ Error in handleDelete:', error)
+      addNotification({
+        type: 'error',
+        message: 'Failed to initiate delete process'
+      })
+    }
+  }
+
+  const cancelDelete = () => {
+    try {
+      console.log('❌ Delete cancelled')
+      setDeleteDialog({ isOpen: false, resume: null })
+    } catch (error) {
+      console.error('❌ Error in cancelDelete:', error)
+      setDeleteDialog({ isOpen: false, resume: null })
+    }
+  }
+
+  const confirmDelete = async () => {
+    const resume = deleteDialog.resume
+    if (!resume) {
+      console.error('No resume selected for deletion')
+      setDeleteDialog({ isOpen: false, resume: null })
       return
     }
 
     try {
-      const response = await resumeAPI.deleteResume(resume._id)
+      console.log('🗑️ Deleting resume:', resume._id)
+      setLoading(true)
       
-      if (response.success) {
+      const response = await resumeAPI.deleteResume(resume._id)
+      console.log('🗑️ Delete response:', response)
+      
+      if (response && response.success) {
         addNotification({
           type: 'success',
-          message: 'Resume deleted successfully'
+          message: 'Resume deleted successfully from both database and storage'
         })
         
         // Remove from local state
-        setResumes(resumes.filter(r => r._id !== resume._id))
+        const updatedResumes = resumes.filter(r => r._id !== resume._id)
+        console.log('🗑️ Updated resumes count:', updatedResumes.length)
+        setResumes(updatedResumes)
+      } else {
+        throw new Error(response?.message || 'Delete operation failed')
       }
     } catch (error) {
-      console.error('Delete error:', error)
+      console.error('❌ Delete error:', error)
       addNotification({
         type: 'error',
         message: error.message || 'Failed to delete resume. Please try again.'
       })
+    } finally {
+      setLoading(false)
+      setDeleteDialog({ isOpen: false, resume: null })
+      console.log('🗑️ Delete operation completed')
     }
   }
 
@@ -521,6 +580,18 @@ const ResumeManagement = () => {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={cancelDelete}
+        onConfirm={confirmDelete}
+        title="Delete Resume"
+        message={`Are you sure you want to delete "${deleteDialog.resume?.filename || deleteDialog.resume?.originalName || 'this resume'}"? This action cannot be undone and will remove the file from both the database and cloud storage.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+      />
     </DashboardLayout>
   )
 }
