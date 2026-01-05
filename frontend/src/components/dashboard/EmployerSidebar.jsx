@@ -30,9 +30,9 @@ const EmployerSidebar = () => {
     },
     {
       name: 'Job Management',
-      href: '/employer-dashboard/job-management',
+      href: '/employer-dashboard/jobs',
       icon: HiBriefcase,
-      current: location.pathname === '/employer-dashboard/job-management'
+      current: location.pathname.startsWith('/employer-dashboard/jobs') || location.pathname === '/employer-dashboard/job-management'
     },
     {
       name: 'Applications Review',

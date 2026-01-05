@@ -5,15 +5,32 @@ import { Home, About, Features, Contact } from './pages'
 import SignUp from './pages/SignUp'
 import Login from './pages/Login'
 import StudentDashboard from './pages/StudentDashboard'
+import StudentApplications from './pages/StudentApplications'
 import EmployerDashboard from './pages/EmployerDashboard'
+import EmployerApplicationsReview from './pages/EmployerApplicationsReview'
+import EmployerInterviewScheduling from './pages/EmployerInterviewScheduling'
+import InterviewStart from './pages/InterviewStart'
+import LiveInterview from './pages/LiveInterview'
+import InterviewResults from './pages/InterviewResults'
+import InterviewHistory from './pages/InterviewHistory'
+import Leaderboard from './pages/Leaderboard'
 import ProfileManagement from './pages/ProfileManagement'
 import ResumeManagement from './pages/ResumeManagement'
 import ExploreJobs from './pages/ExploreJobs'
 import EmployerProfile from './pages/EmployerProfile'
 import JobManagement from './pages/JobManagement'
+import JobManagementEmployer from './pages/JobManagementEmployer'
+import JobForm from './pages/JobForm'
+import JobDetails from './pages/JobDetails'
+import ScreeningInterviewStart from './pages/ScreeningInterviewStart'
+import LiveScreeningInterview from './pages/LiveScreeningInterview'
+import ScreeningInterviewResults from './pages/ScreeningInterviewResults'
+import AIVoiceInterview from './pages/AIVoiceInterview'
+import JobLeaderboard from './pages/JobLeaderboard'
 import { AppProvider } from './context/AppContext'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import NotificationContainer from './components/NotificationContainer'
 
 const App = () => {
   return (
@@ -59,6 +76,11 @@ const App = () => {
                 <StudentDashboard />
               </ProtectedRoute>
             } />
+            <Route path="/student-dashboard/applications" element={
+              <ProtectedRoute requiredRole="candidate">
+                <StudentApplications />
+              </ProtectedRoute>
+            } />
             <Route path="/student-dashboard/profile" element={
               <ProtectedRoute requiredRole="candidate">
                 <ProfileManagement />
@@ -74,6 +96,56 @@ const App = () => {
                 <ExploreJobs />
               </ProtectedRoute>
             } />
+            <Route path="/student-dashboard/interview/start" element={
+              <ProtectedRoute requiredRole="candidate">
+                <InterviewStart />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/interview/live" element={
+              <ProtectedRoute requiredRole="candidate">
+                <LiveInterview />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/interview/results" element={
+              <ProtectedRoute requiredRole="candidate">
+                <InterviewResults />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/leaderboard" element={
+              <ProtectedRoute requiredRole="candidate">
+                <Leaderboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/interview-history" element={
+              <ProtectedRoute requiredRole="candidate">
+                <InterviewHistory />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/screening-interview/start" element={
+              <ProtectedRoute requiredRole="candidate">
+                <ScreeningInterviewStart />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/screening-interview/live" element={
+              <ProtectedRoute requiredRole="candidate">
+                <LiveScreeningInterview />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/screening-interview/results" element={
+              <ProtectedRoute requiredRole="candidate">
+                <ScreeningInterviewResults />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/ai-voice-interview" element={
+              <ProtectedRoute requiredRole="candidate">
+                <AIVoiceInterview />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/job-leaderboard/:jobId" element={
+              <ProtectedRoute requiredRole="candidate">
+                <JobLeaderboard />
+              </ProtectedRoute>
+            } />
             <Route path="/employer-dashboard" element={
               <ProtectedRoute requiredRole="employer">
                 <EmployerDashboard />
@@ -84,12 +156,48 @@ const App = () => {
                 <EmployerProfile />
               </ProtectedRoute>
             } />
+            <Route path="/employer-dashboard/applications" element={
+              <ProtectedRoute requiredRole="employer">
+                <EmployerApplicationsReview />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/interview-scheduling" element={
+              <ProtectedRoute requiredRole="employer">
+                <EmployerInterviewScheduling />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/jobs" element={
+              <ProtectedRoute requiredRole="employer">
+                <JobManagementEmployer />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/jobs/create" element={
+              <ProtectedRoute requiredRole="employer">
+                <JobForm />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/jobs/:jobId" element={
+              <ProtectedRoute requiredRole="employer">
+                <JobDetails />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/jobs/:jobId/edit" element={
+              <ProtectedRoute requiredRole="employer">
+                <JobForm />
+              </ProtectedRoute>
+            } />
             <Route path="/employer-dashboard/job-management" element={
               <ProtectedRoute requiredRole="employer">
                 <JobManagement />
               </ProtectedRoute>
             } />
+            <Route path="/employer-dashboard/job-leaderboard/:jobId" element={
+              <ProtectedRoute requiredRole="employer">
+                <JobLeaderboard />
+              </ProtectedRoute>
+            } />
           </Routes>
+          <NotificationContainer />
         </Router>
       </AppProvider>
     </AuthProvider>

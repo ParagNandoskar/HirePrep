@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose'); // Moved mongoose require to the top
+const path = require('path');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -18,14 +19,27 @@ const candidatesRoutes = require('./routes/candidates');
 const companiesRoutes = require('./routes/companies');
 const applicationsRoutes = require('./routes/applications');
 const jobsRoutes = require('./routes/jobs');
+const uploadRoutes = require('./routes/upload');
+const geminiVoiceRoutes = require('./routes/geminiVoice');
 
 // Import middlewares
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Security middleware - Configure helmet for development
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "blob:", "*"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+      scriptSrc: ["'self'"],
+      connectSrc: ["'self'", "*"],
+    },
+  },
+}));
 app.use(compression());
 
 // Rate limiting (increased for development)
@@ -108,6 +122,9 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Static file serving for uploads 
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Health check endpoint (simple)
 app.get('/health', (req, res) => {
   res.json({ 
@@ -164,7 +181,11 @@ app.use('/api/status', statusRoutes);
 app.use('/api/candidates', candidatesRoutes);
 app.use('/api/companies', companiesRoutes);
 app.use('/api/applications', applicationsRoutes);
-app.use('/api/jobs', jobsRoutes); // Frontend expects /api/jobs// 404 handler
+app.use('/api/jobs', jobsRoutes); // Frontend expects /api/jobs
+app.use('/api/upload', uploadRoutes); // Video and file uploads
+app.use('/api/gemini-voice', geminiVoiceRoutes); // Gemini AI voice interview
+
+// 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,

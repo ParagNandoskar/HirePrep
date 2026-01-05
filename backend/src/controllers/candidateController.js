@@ -5,7 +5,7 @@ const Job = require('../models/Job');
 const Resume = require('../models/Resume');
 const { successResponse, errorResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
-const { deleteFromS3, extractFileKeyFromUrl } = require('../config/aws');
+const { deleteFromS3, extractFileKeyFromUrl, getSignedFileUrl } = require('../config/aws');
 
 // Get candidate profile
 const getProfile = asyncHandler(async (req, res) => {
@@ -49,7 +49,20 @@ const getProfile = asyncHandler(async (req, res) => {
   }
 
   // Convert Mongoose document to a plain JavaScript object
-  return successResponse(res, candidate.toObject(), 'Profile retrieved successfully');
+  const candidateData = candidate.toObject();
+  
+  // Generate signed URL for profile image if it exists and is from S3
+  if (candidateData.profileImage && candidateData.profileImage.includes('amazonaws.com') && candidateData.profileImageKey) {
+    try {
+      candidateData.profileImage = await getSignedFileUrl(candidateData.profileImageKey, 604800); // 7 days
+      console.log('🔐 Generated signed URL for profile retrieval:', candidateData.profileImage);
+    } catch (error) {
+      console.error('⚠️ Failed to generate signed URL for profile image:', error.message);
+      // Keep the original URL as fallback
+    }
+  }
+  
+  return successResponse(res, candidateData, 'Profile retrieved successfully');
 });
 
 // Update candidate profile
@@ -108,25 +121,36 @@ const getApplications = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { page = 1, limit = 10, status } = req.query;
 
+  console.log('DEBUG: Fetching applications for user:', userId);
+
   const filter = { candidateId: userId };
   if (status) {
     filter.status = status;
   }
 
+  console.log('DEBUG: Filter:', filter);
+
   const applications = await Application.find(filter)
     .populate({
       path: 'jobId',
-      select: 'title description company location compensation jobDetails status',
+      select: 'title description companyId location compensation jobDetails status',
       populate: {
-        path: 'company',
-        select: 'companyName logo'
+        path: 'companyId',
+        select: 'name email profile'
       }
     })
     .sort({ appliedAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit);
 
+  console.log('DEBUG: Found applications:', applications.length);
+
   const total = await Application.countDocuments(filter);
+
+  // Log the first application to see what data we have
+  if (applications.length > 0) {
+    console.log('DEBUG: First application company:', applications[0].jobId?.companyId);
+  }
 
   // Transform the data to match frontend expectations
   const transformedApplications = applications.map(app => ({
@@ -139,8 +163,8 @@ const getApplications = asyncHandler(async (req, res) => {
       title: app.jobId?.title,
       description: app.jobId?.description,
       company: {
-        companyName: app.jobId?.company?.companyName,
-        logo: app.jobId?.company?.logo
+        companyName: app.jobId?.companyId?.profile?.companyName || app.jobId?.companyId?.name,
+        logo: app.jobId?.companyId?.profile?.logo
       },
       location: app.jobId?.location,
       compensation: app.jobId?.compensation,
@@ -152,6 +176,8 @@ const getApplications = asyncHandler(async (req, res) => {
     interviews: app.interviews,
     offer: app.offer
   }));
+
+  console.log('DEBUG: Transformed applications:', JSON.stringify(transformedApplications, null, 2));
 
   return successResponse(res, {
     applications: transformedApplications,
@@ -256,8 +282,15 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   
   console.log('📸 Profile image upload started for user:', userId);
+  console.log('📸 Environment check:', {
+    hasS3Bucket: !!process.env.AWS_S3_BUCKET,
+    hasAwsRegion: !!process.env.AWS_REGION,
+    hasAwsAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+    hasAwsSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY
+  });
   
   if (!req.file) {
+    console.error('❌ No file received in request');
     return errorResponse(res, 'No file uploaded', 400);
   }
 
@@ -266,20 +299,57 @@ const uploadAvatar = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Candidate profile not found', 404);
   }
 
-  console.log('📸 File uploaded to S3:', {
+  console.log('📸 File upload details:', {
     originalName: req.file.originalname,
     size: req.file.size,
-    location: req.file.location,
-    key: req.file.key
+    mimetype: req.file.mimetype,
+    isLocalUpload: req.isLocalUpload,
+    location: req.file.location || req.file.path,
+    key: req.file.key || req.file.filename
   });
 
-  // Delete old profile image if it exists
-  if (candidate.profileImage) {
+  // Determine the file URL based on upload type
+  let profileImageUrl;
+  let profileImageKey;
+
+  if (req.isLocalUpload) {
+    // Local upload - construct URL for serving static files
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    profileImageUrl = `${baseUrl}/uploads/profile-images/${req.file.filename}`;
+    profileImageKey = req.file.filename; // Store filename for local deletion
+  } else {
+    // S3 upload - generate signed URL for secure access
     try {
-      const oldFileKey = extractFileKeyFromUrl(candidate.profileImage);
-      if (oldFileKey) {
-        await deleteFromS3(oldFileKey);
-        console.log('🗑️ Old profile image deleted from S3:', oldFileKey);
+      profileImageUrl = await getSignedFileUrl(req.file.key, 604800); // 7 days expiry
+      profileImageKey = req.file.key;
+      console.log('🔐 Generated signed URL for profile image:', profileImageUrl);
+    } catch (error) {
+      console.error('❌ Failed to generate signed URL, using direct URL:', error.message);
+      // Fallback to direct URL (might not work if bucket is private)
+      profileImageUrl = req.file.location;
+      profileImageKey = req.file.key;
+    }
+  }
+
+  // Delete old profile image if it exists
+  if (candidate.profileImage && candidate.profileImageKey) {
+    try {
+      if (req.isLocalUpload || !candidate.profileImage.includes('amazonaws.com')) {
+        // Delete local file
+        const fs = require('fs');
+        const path = require('path');
+        const oldFilePath = path.join(__dirname, '../uploads/profile-images', candidate.profileImageKey);
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
+          console.log('🗑️ Old local profile image deleted:', candidate.profileImageKey);
+        }
+      } else {
+        // Delete from S3
+        const oldFileKey = extractFileKeyFromUrl(candidate.profileImage);
+        if (oldFileKey) {
+          await deleteFromS3(oldFileKey);
+          console.log('🗑️ Old S3 profile image deleted:', oldFileKey);
+        }
       }
     } catch (error) {
       console.error('⚠️ Failed to delete old profile image:', error.message);
@@ -288,16 +358,16 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   }
 
   // Update candidate profile with new image URL and metadata
-  candidate.profileImage = req.file.location; // S3 URL
-  candidate.profileImageKey = req.file.key; // S3 key for future deletion
+  candidate.profileImage = profileImageUrl;
+  candidate.profileImageKey = profileImageKey;
   candidate.updatedAt = new Date();
   
   await candidate.save();
 
-  console.log('✅ Profile image updated successfully:', candidate.profileImage);
+  console.log('✅ Profile image updated successfully:', profileImageUrl);
 
   return successResponse(res, { 
-    profileImage: candidate.profileImage,
+    profileImage: profileImageUrl,
     message: 'Profile image uploaded successfully'
   }, 'Avatar uploaded successfully');
 });

@@ -243,7 +243,7 @@ const toggleJobStatus = asyncHandler(async (req, res) => {
 
 // Apply to a job (candidate endpoint)
 const applyToJob = asyncHandler(async (req, res) => {
-  const { jobId } = req.body;
+  const jobId = req.params.id; // Get jobId from URL parameter
   const candidateId = req.user.id;
 
   console.log("DEBUG: Candidate", candidateId, "applying to job", jobId); // Check if job exists and is active

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const candidateController = require('../controllers/candidateController');
 const { authenticate, authorize } = require('../middlewares/authMiddleware');
-const { uploadProfileImageToS3 } = require('../config/aws');
+const { smartUploadMiddleware } = require('../config/upload');
 
 // Protect all routes - require authentication
 router.use(authenticate);
@@ -21,6 +21,34 @@ router.route('/applications/:applicationId')
 // Additional useful routes
 router.get('/dashboard-stats', candidateController.getDashboardStats);
 router.get('/job-recommendations', candidateController.getJobRecommendations);
-router.post('/upload-avatar', uploadProfileImageToS3.single('profileImage'), candidateController.uploadAvatar);
+router.post('/upload-avatar', smartUploadMiddleware, candidateController.uploadAvatar);
+
+// Test endpoint for S3 configuration (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/test-s3', async (req, res) => {
+    try {
+      const { checkS3Connection, setS3BucketPolicy } = require('../config/aws');
+      
+      // Check S3 connection
+      const connectionResult = await checkS3Connection();
+      
+      // Try to set bucket policy for profile images
+      const policyResult = await setS3BucketPolicy();
+      
+      res.json({
+        success: true,
+        s3Connection: connectionResult,
+        bucketPolicy: policyResult,
+        message: 'S3 configuration test completed'
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'S3 configuration test failed'
+      });
+    }
+  });
+}
 
 module.exports = router;

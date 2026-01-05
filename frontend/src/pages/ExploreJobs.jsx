@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { HiSearch, HiLocationMarker, HiBookmark, HiClock, HiHeart } from 'react-icons/hi'
+import { HiSearch, HiLocationMarker, HiBookmark, HiClock, HiHeart, HiSave, HiX } from 'react-icons/hi'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
 import Button from '../components/ui/Button'
@@ -29,12 +29,19 @@ const ExploreJobs = () => {
       remote: false
     },
     level: '',
-    skills: ''
+    skills: '',
+    education: ''
   })
 
   const [jobs, setJobs] = useState([])
   const [filteredJobs, setFilteredJobs] = useState([])
   const [candidateSkills, setCandidateSkills] = useState([])
+  const [skillSuggestions, setSkillSuggestions] = useState([])
+  const [showSkillSuggestions, setShowSkillSuggestions] = useState(false)
+  const [selectedSkills, setSelectedSkills] = useState([])
+  const [savedFilters, setSavedFilters] = useState([])
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [filterName, setFilterName] = useState('')
   const [pagination, setPagination] = useState({
     current: 1,
     pages: 1,
@@ -47,7 +54,98 @@ const ExploreJobs = () => {
   // Load candidate skills on component mount
   useEffect(() => {
     loadCandidateSkills()
+    loadSavedFilters()
   }, [user])
+
+  // Load saved filter presets from localStorage
+  const loadSavedFilters = () => {
+    const saved = localStorage.getItem(`jobFilters_${user?._id}`)
+    if (saved) {
+      try {
+        setSavedFilters(JSON.parse(saved))
+      } catch (error) {
+        console.error('Error loading saved filters:', error)
+      }
+    }
+  }
+
+  // Common skills for autocomplete
+  const commonSkills = [
+    'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Ruby', 'Go', 'Rust', 'Swift',
+    'React', 'Angular', 'Vue.js', 'Next.js', 'Node.js', 'Express', 'Django', 'Flask', 'Spring Boot',
+    'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'Git', 'CI/CD',
+    'MongoDB', 'PostgreSQL', 'MySQL', 'Redis', 'Elasticsearch',
+    'Machine Learning', 'Data Science', 'AI', 'NLP', 'Computer Vision',
+    'REST API', 'GraphQL', 'Microservices', 'Agile', 'Scrum'
+  ]
+
+  // Handle skill input change with suggestions
+  const handleSkillInput = (value) => {
+    setFilters(prev => ({ ...prev, skills: value }))
+    
+    if (value.length > 1) {
+      const matches = commonSkills.filter(skill => 
+        skill.toLowerCase().includes(value.toLowerCase()) &&
+        !selectedSkills.includes(skill)
+      )
+      setSkillSuggestions(matches.slice(0, 5))
+      setShowSkillSuggestions(matches.length > 0)
+    } else {
+      setShowSkillSuggestions(false)
+    }
+  }
+
+  // Add skill from suggestion
+  const addSkill = (skill) => {
+    if (!selectedSkills.includes(skill)) {
+      setSelectedSkills(prev => [...prev, skill])
+      setFilters(prev => ({ ...prev, skills: '' }))
+      setShowSkillSuggestions(false)
+    }
+  }
+
+  // Remove skill
+  const removeSkill = (skillToRemove) => {
+    setSelectedSkills(prev => prev.filter(skill => skill !== skillToRemove))
+  }
+
+  // Save current filter preset
+  const saveFilterPreset = () => {
+    if (!filterName.trim()) {
+      alert('Please enter a name for this filter')
+      return
+    }
+
+    const newPreset = {
+      id: Date.now(),
+      name: filterName,
+      filters: { ...filters },
+      selectedSkills: [...selectedSkills]
+    }
+
+    const updated = [...savedFilters, newPreset]
+    setSavedFilters(updated)
+    localStorage.setItem(`jobFilters_${user?._id}`, JSON.stringify(updated))
+    
+    setShowSaveModal(false)
+    setFilterName('')
+    addNotification('Filter preset saved successfully', 'success')
+  }
+
+  // Load filter preset
+  const loadFilterPreset = (preset) => {
+    setFilters(preset.filters)
+    setSelectedSkills(preset.selectedSkills)
+    addNotification(`Loaded filter: ${preset.name}`, 'success')
+  }
+
+  // Delete filter preset
+  const deleteFilterPreset = (presetId) => {
+    const updated = savedFilters.filter(preset => preset.id !== presetId)
+    setSavedFilters(updated)
+    localStorage.setItem(`jobFilters_${user?._id}`, JSON.stringify(updated))
+    addNotification('Filter preset deleted', 'success')
+  }
 
   // Load jobs on component mount and when filters change
   useEffect(() => {
@@ -146,8 +244,17 @@ const ExploreJobs = () => {
       // Experience level filter
       if (filters.level) params.level = filters.level
       
-      // Skills filter
-      if (filters.skills) params.skills = filters.skills
+      // Education filter
+      if (filters.education) params.education = filters.education
+      
+      // Skills filter - combine text input and selected skills
+      const allSkills = [...selectedSkills]
+      if (filters.skills) {
+        allSkills.push(...filters.skills.split(',').map(s => s.trim()).filter(s => s))
+      }
+      if (allSkills.length > 0) {
+        params.skills = allSkills.join(',')
+      }
 
       // Job type filters - map frontend job types to backend format
       const activeJobTypes = Object.entries(filters.jobType)
@@ -353,13 +460,48 @@ const ExploreJobs = () => {
               {/* Filter Header */}
               <div className="flex items-center justify-between p-4 border-b border-gray-200 ">
                 <h2 className="font-medium text-gray-800">Filter</h2>
-                <button 
-                  onClick={clearAllFilters}
-                  className="text-red-500 text-sm hover:text-red-600 transition-colors"
-                >
-                  Clear all
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => setShowSaveModal(true)}
+                    className="text-blue-600 text-sm hover:text-blue-700 transition-colors flex items-center space-x-1"
+                    title="Save current filters"
+                  >
+                    <HiSave className="w-4 h-4" />
+                    <span>Save</span>
+                  </button>
+                  <button 
+                    onClick={clearAllFilters}
+                    className="text-red-500 text-sm hover:text-red-600 transition-colors"
+                  >
+                    Clear all
+                  </button>
+                </div>
               </div>
+
+              {/* Saved Filter Presets */}
+              {savedFilters.length > 0 && (
+                <div className="p-4 border-b border-gray-200">
+                  <h3 className="font-medium text-gray-800 mb-3">Saved Filters</h3>
+                  <div className="space-y-2">
+                    {savedFilters.map(preset => (
+                      <div key={preset.id} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg">
+                        <button
+                          onClick={() => loadFilterPreset(preset)}
+                          className="flex-1 text-left text-sm text-blue-700 hover:text-blue-900"
+                        >
+                          {preset.name}
+                        </button>
+                        <button
+                          onClick={() => deleteFilterPreset(preset.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <HiX className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Date Posted Filter */}
               <div className=" p-4">
@@ -473,18 +615,88 @@ const ExploreJobs = () => {
               </div>
                <hr className="mx-4 text-gray-200" />
 
-              {/* Skills Filter */}
-              <div className=" p-4">
+              {/* Skills Filter with Autocomplete */}
+              <div className="p-4">
                 <h3 className="font-medium text-gray-800 mb-3">Skills</h3>
-                <input
-                  type="text"
-                  placeholder="e.g. React, Python, AWS"
-                  value={filters.skills}
-                  onChange={(e) => setFilters(prev => ({ ...prev, skills: e.target.value }))}
+                
+                {/* Selected Skills */}
+                {selectedSkills.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {selectedSkills.map((skill, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center space-x-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-lg text-sm"
+                      >
+                        <span>{skill}</span>
+                        <button
+                          onClick={() => removeSkill(skill)}
+                          className="hover:text-blue-900"
+                        >
+                          <HiX className="w-4 h-4" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Skill Input with Autocomplete */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Type to search skills..."
+                    value={filters.skills}
+                    onChange={(e) => handleSkillInput(e.target.value)}
+                    onFocus={() => {
+                      if (filters.skills.length > 1 && skillSuggestions.length > 0) {
+                        setShowSkillSuggestions(true)
+                      }
+                    }}
+                    onBlur={() => {
+                      // Delay to allow click on suggestion
+                      setTimeout(() => setShowSkillSuggestions(false), 200)
+                    }}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    style={{ backgroundColor: '#0035661A' }}
+                  />
+                  
+                  {/* Autocomplete Dropdown */}
+                  {showSkillSuggestions && skillSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {skillSuggestions.map((skill, index) => (
+                        <button
+                          key={index}
+                          onClick={() => addSkill(skill)}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
+                        >
+                          {skill}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                <p className="text-xs text-gray-500 mt-2">
+                  Select from suggestions or type multiple skills separated by commas
+                </p>
+              </div>
+               <hr className="mx-4 text-gray-200" />
+
+              {/* Education Level Filter */}
+              <div className="p-4">
+                <h3 className="font-medium text-gray-800 mb-3">Education Level</h3>
+                <select
+                  value={filters.education}
+                  onChange={(e) => setFilters(prev => ({ ...prev, education: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   style={{ backgroundColor: '#0035661A' }}
-                />
-                <p className="text-xs text-gray-500 mt-1">Separate multiple skills with commas</p>
+                >
+                  <option value="">Any</option>
+                  <option value="High School">High School</option>
+                  <option value="Associate's">Associate's Degree</option>
+                  <option value="Bachelor's">Bachelor's Degree</option>
+                  <option value="Master's">Master's Degree</option>
+                  <option value="PhD">PhD</option>
+                </select>
               </div>
                <hr className="mx-4 text-gray-200" />
 
@@ -822,6 +1034,43 @@ const ExploreJobs = () => {
           </div>
         </div>
       </div>
+
+      {/* Save Filter Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Save Filter Preset</h3>
+            <p className="text-gray-600 mb-4">
+              Give this filter combination a name so you can quickly apply it later.
+            </p>
+            <input
+              type="text"
+              value={filterName}
+              onChange={(e) => setFilterName(e.target.value)}
+              placeholder="e.g. Senior React Remote Jobs"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-6"
+              autoFocus
+            />
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowSaveModal(false)
+                  setFilterName('')
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveFilterPreset}
+                className="px-4 py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-800 transition-colors"
+              >
+                Save Filter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   )
 }

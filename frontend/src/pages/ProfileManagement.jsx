@@ -36,6 +36,8 @@ const ProfileManagement = () => {
   const [isSyncing, setIsSyncing] = useState(false) // Prevent multiple sync calls
   const [isUploadingImage, setIsUploadingImage] = useState(false) // Profile image upload state
   const [hasAttemptedAutoSync, setHasAttemptedAutoSync] = useState(false) // Prevent infinite auto-sync loops
+  const [hasUpdatedUserContext, setHasUpdatedUserContext] = useState(false) // Prevent useEffect loops
+  const [noResumeAvailable, setNoResumeAvailable] = useState(false) // Track if no resume exists
   
   // Use a dedicated loading state for the profile component
   const [isProfileLoading, setIsProfileLoading] = useState(true)
@@ -43,15 +45,18 @@ const ProfileManagement = () => {
   // Define handleSyncSkills before useEffect so it can be called during profile load
   const handleSyncSkills = async () => {
     if (isSyncing) {
-      console.log('🔄 Sync already in progress, skipping...');
       return;
     }
     
     try {
       setIsSyncing(true);
-      console.log('🔄 Syncing skills from resume...');
       const response = await resumeAPI.syncSkills();
-      console.log('✅ Sync response:', response);
+      
+      // Check if no resume is available
+      if (response.noResume) {
+        setNoResumeAvailable(true)
+        return // Exit early, this is expected behavior
+      }
       
       // Reload the profile to get updated skills
       const profileResponse = await candidatesAPI.getProfile();
@@ -69,8 +74,6 @@ const ProfileManagement = () => {
         setSkills(skillsArray);
         setAutoExtractedSkills(autoExtracted);
         
-        console.log('✅ Skills synced and updated:', skillsArray.length, 'skills');
-        
         // Update the form data with the new skills to prevent further auto-sync
         setFormData(prev => ({
           ...prev,
@@ -78,7 +81,12 @@ const ProfileManagement = () => {
         }));
       }
     } catch (error) {
-      console.error('❌ Error syncing skills:', error);
+      // "No resume found" for sync-skills is normal - user just doesn't have a resume to sync from
+      if (error.message?.includes('No resume found') || error.message?.includes('404')) {
+        setNoResumeAvailable(true) // Remember that no resume is available
+      } else {
+        console.error('Error syncing skills:', error)
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -89,7 +97,6 @@ const ProfileManagement = () => {
     const fetchProfile = async () => {
       // Return if AuthContext hasn't finished checking the token yet
       if (authLoading) {
-        console.log('⏳ ProfileManagement: Auth context still loading, waiting...')
         return
       }
       
@@ -101,12 +108,9 @@ const ProfileManagement = () => {
 
         // Don't fetch if we already have profile data in user context
         if (user && (user.firstName || user.lastName || user.phone)) {
-          console.log('✅ ProfileManagement: Using existing user data from auth context')
           
           // Check if we have essential data, if not, fetch from API
           if (!user.phone || !user.profileImage) {
-            console.log('⚠️ ProfileManagement: Missing phone number or profile image, fetching fresh data from API...')
-            console.log('🔍 ProfileManagement: user.phone:', user.phone, 'user.profileImage:', user.profileImage)
             // Don't return early, continue to API fetch for complete data
           } else {
             // Update form with auth context data
@@ -124,7 +128,6 @@ const ProfileManagement = () => {
             
             // Set profile image from auth context
             setProfileImage(user.profileImage || null)
-            console.log('🔍 ProfileManagement: (AuthContext) Profile image set to:', user.profileImage);
             
             if (user.skills && Array.isArray(user.skills)) {
               const skillsArray = user.skills.map(skill => 
@@ -134,21 +137,16 @@ const ProfileManagement = () => {
               // Process auto-extracted skills from AuthContext
               const autoExtracted = user.skills.filter(skill => {
                 if (typeof skill === 'object' && skill.source) {
-                  console.log('🔍 ProfileManagement: (AuthContext) Skill with source:', skill.name, 'source:', skill.source);
                   return skill.source === 'resume-extracted'
                 }
                 return false
               }).map(skill => skill.name)
-              
-              console.log('🔍 ProfileManagement: (AuthContext) Skills array:', skillsArray);
-              console.log('🔍 ProfileManagement: (AuthContext) Auto-extracted skills:', autoExtracted);
               
               setSkills(skillsArray)
               setAutoExtractedSkills(autoExtracted)
               
               // If we have skills but no source info, we need fresh data from API
               if (skillsArray.length > 0 && autoExtracted.length === 0) {
-                console.log('⚠️ ProfileManagement: Skills found but no source info, fetching fresh data...');
                 // Don't return early, continue to API fetch for complete data
               } else {
                 setIsProfileLoading(false)
@@ -161,41 +159,15 @@ const ProfileManagement = () => {
           }
         }
 
-        // Add a longer delay to prevent rate limiting
+        // Add a delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 500))
 
         const response = await candidatesAPI.getProfile()
-        console.log('📋 ProfileManagement: Candidates API response:', response)
-        console.log('📋 ProfileManagement: Response structure:', {
-          hasId: !!response?._id,
-          responseKeys: Object.keys(response || {}),
-          firstName: response?.firstName,
-          lastName: response?.lastName,
-          phone: response?.phone
-        })
-        
-        console.log('📋 ProfileManagement: API Response:', response)
-        console.log('📋 ProfileManagement: Response structure:', {
-          hasData: !!response.data,
-          hasDirectId: !!response._id,
-          responseKeys: Object.keys(response)
-        })
         
         // Handle both direct response and wrapped response
         const profile = response.data || response
         
         if (profile && profile._id) {
-          console.log('✅ ProfileManagement: Profile data found');
-          console.log('🔍 ProfileManagement: Full profile object:', profile);
-          console.log('🔍 ProfileManagement: Profile basic info:', {
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            phone: profile.phone,
-            currentRole: profile.currentRole,
-            gender: profile.gender,
-            skillsCount: profile.skills?.length || 0
-          });
-          
           // Update form fields with latest API data
           setFormData({
             firstName: profile.firstName || '',
@@ -210,95 +182,74 @@ const ProfileManagement = () => {
           })
           
           setProfileImage(profile.profileImage || null)
-          console.log('🔍 ProfileManagement: (API) Profile image set to:', profile.profileImage);
 
           // Update skills
-          console.log('🔍 ProfileManagement: Processing skills from profile...');
-          console.log('🔍 ProfileManagement: profile.skills exists:', !!profile.skills);
-          console.log('🔍 ProfileManagement: profile.skills is array:', Array.isArray(profile.skills));
-          console.log('🔍 ProfileManagement: Raw skills from profile:', profile.skills);
-          
           if (profile.skills && Array.isArray(profile.skills) && profile.skills.length > 0) {
             const skillsArray = profile.skills.map(skill => 
               typeof skill === 'string' ? skill : skill.name
             ).filter(Boolean)
             
-            console.log('🔍 ProfileManagement: Mapped skills array:', skillsArray);
             setSkills(skillsArray)
             
             // Logic for identifying auto-extracted skills
             const autoExtracted = profile.skills.filter(skill => {
               if (typeof skill === 'object' && skill.source) {
-                console.log('🔍 ProfileManagement: Skill with source:', skill.name, 'source:', skill.source);
                 return skill.source === 'resume-extracted'
               }
               return false
             }).map(skill => skill.name)
             
-            console.log('🔍 ProfileManagement: Auto-extracted skills:', autoExtracted);
             setAutoExtractedSkills(autoExtracted)
-            
-            console.log('✅ ProfileManagement: Skills loaded successfully:', skillsArray.length, 'skills');
           } else {
-            console.log('⚠️ ProfileManagement: No skills found in profile, checking if auto-sync needed...');
             // Only try to sync when no skills are found anywhere and we haven't attempted auto-sync yet
             const hasAnySkills = skills.length > 0 || (formData.skills && formData.skills.length > 0);
-            if (!isSyncing && !hasAttemptedAutoSync && !hasAnySkills) {
-              console.log('🔄 ProfileManagement: Attempting auto-sync from resume...');
+            if (!isSyncing && !hasAttemptedAutoSync && !hasAnySkills && !noResumeAvailable) {
               setHasAttemptedAutoSync(true); // Mark that we've attempted auto-sync
               setTimeout(() => {
                 handleSyncSkills();
               }, 500); // Small delay to ensure component is ready
-            } else if (hasAnySkills) {
-              console.log('ℹ️ ProfileManagement: Skills already exist in local state, skipping auto-sync');
-            } else if (hasAttemptedAutoSync) {
-              console.log('ℹ️ ProfileManagement: Auto-sync already attempted, skipping');
             }
           }
           
-          // Sync successful profile data back to AuthContext
-          updateUser({
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            phone: profile.phone,
-            currentRole: profile.currentRole,
-            gender: profile.gender,
-            profileSummary: profile.profileSummary,
-            skills: profile.skills,
-            profileImage: profile.profileImage,
-            profile: profile
-          })
+          // Sync successful profile data back to AuthContext (only once per session)
+          if (!hasUpdatedUserContext) {
+            updateUser({
+              firstName: profile.firstName,
+              lastName: profile.lastName,
+              phone: profile.phone,
+              currentRole: profile.currentRole,
+              gender: profile.gender,
+              profileSummary: profile.profileSummary,
+              skills: profile.skills,
+              profileImage: profile.profileImage,
+              profile: profile
+            })
+            setHasUpdatedUserContext(true)
+          }
 
         } else {
-          console.log('❌ ProfileManagement: No profile data found in response')
-          console.log('📋 ProfileManagement: Full response structure:', response)
-          
           // If API returns no profile, the form still holds the initial user data.
         }
       } catch (error) {
-        console.error('❌ ProfileManagement: Error fetching profile:', error)
-        
-        // Check if we have user data as fallback before showing error
+        // Error handling without console spam
         if (user && (user.firstName || user.lastName || user.phone)) {
-          console.log('🔄 ProfileManagement: Using cached user data from auth context')
-          // Don't show error if we have fallback data
+          // Use cached user data as fallback
         } else {
-          // Only show console log, no user notification
-          console.log('❌ ProfileManagement: No fallback data available')
+          // No fallback data available
         }
       } finally {
         setIsProfileLoading(false)
       }
     }
 
-    // Only fetch profile if the user object is available and auth is finished
-    if (user && !authLoading) {
+    // Only fetch profile if the user object is available and auth is finished and we haven't updated context yet
+    if (user && !authLoading && !hasUpdatedUserContext) {
       fetchProfile()
     } else if (!authLoading) {
       // If auth is done and no user (or user object exists but no profile fetch needed)
       setIsProfileLoading(false)
     }
-  }, [user, authLoading, updateUser]) 
+  }, [user?.email, user?.firstName, user?.lastName, user?.phone, authLoading, hasUpdatedUserContext]) // More specific dependencies
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -339,42 +290,29 @@ const ProfileManagement = () => {
 
     try {
       setIsUploadingImage(true)
-      console.log('📸 Uploading profile image:', file.name)
 
       // Upload to AWS S3
       const response = await candidatesAPI.uploadProfileImage(file)
       
-      console.log('🔍 Upload response:', response);
-      console.log('🔍 Current profileImage state before update:', profileImage);
-      
       // Handle both direct response and nested data response
       const profileImageUrl = response?.profileImage || response?.data?.profileImage;
       
-      console.log('🔍 Extracted profileImageUrl:', profileImageUrl);
-      
       if (profileImageUrl) {
-        console.log('✅ Profile image uploaded successfully:', profileImageUrl)
-        
         // Update local state
         setProfileImage(profileImageUrl)
-        console.log('🔍 Profile image state updated to:', profileImageUrl);
         
         // Update auth context
         updateUser({ profileImage: profileImageUrl })
-        console.log('🔍 Auth context updated with profileImage');
         
-        console.log('✅ Profile image updated in state and context')
-        
-        // Force a small delay and check state again
-        setTimeout(() => {
-          console.log('🔍 Profile image state after timeout:', profileImageUrl);
-        }, 1000);
+        // Also update formData to ensure consistency
+        setFormData(prev => ({
+          ...prev,
+          profileImage: profileImageUrl
+        }));
       } else {
-        console.error('❌ Upload response structure:', response);
         throw new Error('Upload response missing profile image URL')
       }
     } catch (error) {
-      console.error('❌ Error uploading profile image:', error)
       alert('Failed to upload profile image. Please try again.')
     } finally {
       setIsUploadingImage(false)
@@ -403,29 +341,10 @@ const ProfileManagement = () => {
       const response = await candidatesAPI.updateProfile(profileData)
       
       if (response && response.message) {
-        console.log('✅ Profile updated successfully:', response.message)
-        
         if (response._id) {
           // Update auth context
           const updatedUserData = { ...user, ...response }
           updateUser(updatedUserData)
-          
-          console.log('✅ ProfileManagement: After updateUser call, checking localStorage:')
-          console.log('🔍 ProfileManagement: Updated user data:', updatedUserData)
-          setTimeout(() => {
-            try {
-              const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
-              console.log('📄 ProfileManagement: Stored user after save:', {
-                firstName: storedUser.firstName,
-                lastName: storedUser.lastName,
-                phone: storedUser.phone,
-                email: storedUser.email,
-                allKeys: Object.keys(storedUser)
-              })
-            } catch (e) {
-              console.log('❌ ProfileManagement: Error reading stored user:', e)
-            }
-          }, 100)
           
           // Update local state based on API response to reflect backend values
           setFormData(prev => ({
@@ -451,8 +370,7 @@ const ProfileManagement = () => {
         }
       }
     } catch (error) {
-      console.error('Error updating profile:', error)
-      // Removed user notification, only console logging
+      // Error handled silently
     } finally {
       setIsProfileLoading(false)
     }
@@ -480,19 +398,16 @@ const ProfileManagement = () => {
             <div className="flex items-center justify-center mb-8">
               <div className="relative">
                 <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                  {(() => {
-                    console.log('🔍 Rendering profile image. Current profileImage state:', profileImage);
-                    console.log('🔍 profileImage type:', typeof profileImage);
-                    console.log('🔍 profileImage truthy:', !!profileImage);
-                    return null;
-                  })()}
                   {profileImage ? (
                     <img 
                       src={profileImage} 
                       alt="Profile" 
                       className="w-full h-full object-cover"
-                      onLoad={() => console.log('✅ Profile image loaded successfully:', profileImage)}
-                      onError={(e) => console.error('❌ Profile image failed to load:', profileImage, e)}
+                      onError={(e) => {
+                        console.error('❌ Profile image failed to load:', profileImage);
+                        // Set fallback to null to show initials instead
+                        setProfileImage(null);
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full bg-blue-100 flex items-center justify-center">

@@ -3,8 +3,8 @@
 """
 Video Analysis Microservice
 
-Analyzes video frames for emotion detection, eye contact, engagement, and confidence scoring.
-Uses OpenCV, DeepFace, and MediaPipe for computer vision tasks.
+Analyzes video frames for eye contact, engagement, and confidence scoring.
+Uses OpenCV and MediaPipe for computer vision tasks.
 """
 
 import os
@@ -17,7 +17,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mediapipe as mp
 import logging
-from deepface import DeepFace  # NEW: Import DeepFace
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,16 +37,8 @@ class VideoAnalyzer:
     Handles the analysis of individual video frames.
     """
     def __init__(self):
-        logger.info("Initializing VideoAnalyzer and DeepFace Emotion Model...")
-        try:
-            # Load the DeepFace emotion model once
-            self.emotion_model = DeepFace.build_model("Emotion") 
-            self.emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
-            logger.info("DeepFace Emotion model loaded successfully.")
-        except Exception as e:
-            logger.error(f"Failed to load DeepFace model: {e}")
-            self.emotion_model = None
-            self.emotion_labels = []
+        logger.info("Initializing VideoAnalyzer with MediaPipe...")
+        logger.info("Video Analyzer ready.")
 
     def analyze_frame(self, frame_data: str) -> dict | None:
         """
@@ -74,7 +65,7 @@ class VideoAnalyzer:
             
             # Analyze different aspects
             face_analysis = self._analyze_face(rgb_frame, frame)
-            emotion_analysis = self._analyze_emotions_deepface(frame)  # NEW: Use DeepFace analysis
+            emotion_analysis = self._analyze_emotions_simple(face_analysis)  # Simplified emotion analysis
             engagement_score = self._calculate_engagement(face_analysis)
             
             return {
@@ -118,7 +109,7 @@ class VideoAnalyzer:
                 if face_mesh_results.multi_face_landmarks:
                     landmarks = face_mesh_results.multi_face_landmarks[0]
                     analysis['eye_contact_score'] = self._calculate_eye_contact(landmarks, frame)
-                    analysis['head_pose'] = self._estimate_head_pose()
+                    analysis['head_pose'] = self._estimate_head_pose(landmarks)
             
             return analysis
             
@@ -128,80 +119,135 @@ class VideoAnalyzer:
     
     def _calculate_eye_contact(self, landmarks, frame) -> float:
         """
-        Calculates a simulated eye contact score.
-        (Placeholder for a more sophisticated implementation.)
+        Calculates real eye contact score using iris landmarks and gaze direction.
         
         Args:
             landmarks: MediaPipe face landmarks.
             frame: The video frame.
             
         Returns:
-            float: A simulated eye contact score between 0 and 100.
+            float: Real eye contact score between 0 and 100.
         """
         try:
-            # NOTE: This is a placeholder. A real implementation would use 
-            # gaze vector estimation from landmarks.
-            return float(min(85, max(30, np.random.normal(65, 15))))
+            h, w = frame.shape[:2]
+            
+            # Get eye landmarks (left and right iris centers)
+            left_iris = landmarks.landmark[468]  # Left iris center
+            right_iris = landmarks.landmark[473]  # Right iris center
+            
+            # Get eye corner landmarks for reference
+            left_eye_left = landmarks.landmark[33]
+            left_eye_right = landmarks.landmark[133]
+            right_eye_left = landmarks.landmark[362]
+            right_eye_right = landmarks.landmark[263]
+            
+            # Calculate iris position relative to eye corners (0 = center, looking at camera)
+            left_eye_width = abs(left_eye_right.x - left_eye_left.x)
+            right_eye_width = abs(right_eye_right.x - right_eye_left.x)
+            
+            left_iris_offset = abs(left_iris.x - (left_eye_left.x + left_eye_right.x) / 2) / left_eye_width
+            right_iris_offset = abs(right_iris.x - (right_eye_left.x + right_eye_right.x) / 2) / right_eye_width
+            
+            # Average offset (0 = looking directly at camera, 1 = looking far away)
+            avg_offset = (left_iris_offset + right_iris_offset) / 2
+            
+            # Convert to eye contact score (0-100)
+            # Lower offset = better eye contact
+            eye_contact_score = max(0, min(100, (1 - avg_offset * 2) * 100))
+            
+            return float(eye_contact_score)
             
         except Exception as e:
             logger.error(f"Eye contact calculation error: {e}", exc_info=True)
             return 50.0
     
-    def _estimate_head_pose(self) -> dict:
+    def _estimate_head_pose(self, landmarks=None) -> dict:
         """
-        Estimates a simulated head pose.
-        (Placeholder for a more sophisticated implementation.)
+        Estimates real head pose using facial landmarks.
         
         Returns:
-            dict: A dictionary of simulated pitch, yaw, and roll.
+            dict: A dictionary of pitch, yaw, and roll angles.
         """
         try:
-            # NOTE: This is a placeholder. A real implementation would use
-            # solvePnP with 3D and 2D landmark coordinates.
+            if landmarks is None:
+                return {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+            
+            # Use key facial landmarks to estimate head orientation
+            nose_tip = landmarks.landmark[1]
+            chin = landmarks.landmark[152]
+            left_eye = landmarks.landmark[33]
+            right_eye = landmarks.landmark[263]
+            left_mouth = landmarks.landmark[61]
+            right_mouth = landmarks.landmark[291]
+            
+            # Calculate yaw (left-right rotation) from eye positions
+            eye_center_x = (left_eye.x + right_eye.x) / 2
+            face_width = abs(right_eye.x - left_eye.x)
+            yaw = (nose_tip.x - eye_center_x) / face_width * 60  # Approximate angle
+            
+            # Calculate pitch (up-down rotation) from nose-chin distance
+            nose_chin_y = chin.y - nose_tip.y
+            pitch = (nose_chin_y - 0.15) * 100  # Normalized pitch
+            
+            # Calculate roll (tilt) from eye alignment
+            eye_slope = (right_eye.y - left_eye.y) / (right_eye.x - left_eye.x) if (right_eye.x - left_eye.x) != 0 else 0
+            roll = np.arctan(eye_slope) * 180 / np.pi  # Convert to degrees
+            
             return {
-                'pitch': float(np.random.normal(0, 10)),
-                'yaw': float(np.random.normal(0, 15)),
-                'roll': float(np.random.normal(0, 5))
+                'pitch': float(np.clip(pitch, -30, 30)),
+                'yaw': float(np.clip(yaw, -45, 45)),
+                'roll': float(np.clip(roll, -20, 20))
             }
         except Exception as e:
             logger.error(f"Head pose estimation error: {e}", exc_info=True)
             return {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
     
-    def _analyze_emotions_deepface(self, frame: np.ndarray) -> dict:
+    def _analyze_emotions_simple(self, face_analysis: dict) -> dict:
         """
-        Analyzes emotion using the DeepFace model.
+        Behavioral state inference based on real facial metrics.
+        Uses actual eye contact, head pose, and face confidence.
         """
-        if not self.emotion_model:
-            return {'neutral': 100.0}
-        
         try:
-            # DeepFace analyze expects BGR or RGB (we pass BGR)
-            # actions=['emotion'] forces it to only analyze emotion
-            analysis = DeepFace.analyze(
-                img_path=frame, 
-                actions=['emotion'], 
-                enforce_detection=False,  # Don't throw error if no face is found
-                detector_backend='mediapipe'  # Use MediaPipe detection
-            )
+            eye_contact = face_analysis.get('eye_contact_score', 50)
+            face_confidence = face_analysis.get('face_confidence', 0) * 100
+            head_pose = face_analysis.get('head_pose', {})
             
-            if analysis and isinstance(analysis, list) and 'emotion' in analysis[0]:
-                emotions = analysis[0]['emotion']
+            # Calculate engagement from real metrics
+            yaw = abs(head_pose.get('yaw', 0))
+            pitch = abs(head_pose.get('pitch', 0))
+            
+            # Real engagement calculation
+            looking_forward = yaw < 15 and pitch < 15  # Looking at camera
+            good_eye_contact = eye_contact > 60
+            stable_detection = face_confidence > 70
+            
+            # Calculate behavioral scores based on real metrics
+            engagement = (eye_contact * 0.4 + (100 - yaw * 2) * 0.3 + face_confidence * 0.3)
+            confidence_level = engagement  # Engaged = confident
+            
+            # Return behavioral state (not fake emotions)
+            if looking_forward and good_eye_contact and stable_detection:
+                return {
+                    'engaged': min(100, engagement),
+                    'confidence': min(100, confidence_level),
+                    'attentive': min(100, eye_contact * 1.2)
+                }
+            elif good_eye_contact:
+                return {
+                    'engaged': min(100, engagement * 0.8),
+                    'confidence': min(100, confidence_level * 0.7),
+                    'attentive': min(100, eye_contact)
+                }
+            else:
+                return {
+                    'engaged': min(100, engagement * 0.5),
+                    'confidence': min(100, confidence_level * 0.5),
+                    'attentive': min(100, eye_contact * 0.7)
+                }
                 
-                # Combine relevant emotions for a confidence metric
-                confidence_score = emotions.get('happy', 0) * 0.5 + emotions.get('neutral', 0) * 0.5
-                emotions['confident'] = confidence_score  # Add a synthesized confidence metric
-
-                # Normalize scores to sum to 100
-                total = sum(emotions.values())
-                if total > 0:
-                    return {k: v for k, v in emotions.items()}  # DeepFace returns raw percentages already
-            
-            return {'neutral': 100.0}
-        
         except Exception as e:
-            # This often happens if no face is detected
-            logger.debug(f"DeepFace analysis failed (likely no face or small face): {e}") 
-            return {'neutral': 100.0}
+            logger.error(f"Emotion analysis error: {e}", exc_info=True)
+            return {'engaged': 50.0, 'confidence': 50.0, 'attentive': 50.0}
     
     def _calculate_engagement(self, face_analysis: dict) -> float:
         """
@@ -386,4 +432,5 @@ def analyze_video() -> tuple:
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8001))
+    logger.info(f"Starting Video Analysis Service on port {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)

@@ -2,6 +2,8 @@ const Interview = require('../models/Interview');
 const Job = require('../models/Job');
 const Resume = require('../models/Resume');
 const interviewService = require('../services/interviewService');
+const aiInterviewService = require('../services/aiInterviewService');
+const speechToTextService = require('../services/speechToTextService');
 const { successResponse, errorResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
 
@@ -486,6 +488,305 @@ const cancelInterview = asyncHandler(async (req, res) => {
   }, 'Interview cancelled successfully');
 });
 
+// Generate AI questions based on job description
+const generateAIQuestions = asyncHandler(async (req, res) => {
+  const { jobDescription, customQuestionsCount = 0 } = req.body;
+
+  if (!jobDescription) {
+    return errorResponse(res, 'Job description is required', 400);
+  }
+
+  try {
+    // Generate dynamic AI questions using Gemini
+    const aiQuestions = await aiInterviewService.generateInterviewQuestions(
+      jobDescription,
+      customQuestionsCount
+    );
+
+    return successResponse(res, {
+      questions: aiQuestions,
+      totalQuestions: customQuestionsCount + aiQuestions.length
+    }, 'AI questions generated successfully');
+
+  } catch (error) {
+    console.error('AI question generation error:', error);
+    return errorResponse(res, 'Failed to generate AI questions: ' + error.message, 500);
+  }
+});
+
+// Submit screening interview responses
+const submitScreeningInterview = asyncHandler(async (req, res) => {
+  const { applicationId } = req.params;
+  const { jobId, responses, totalQuestions } = req.body;
+  const studentId = req.user.id;
+
+  try {
+    const Application = require('../models/Application');
+
+    // Verify application exists and belongs to the student
+    const application = await Application.findOne({
+      _id: applicationId,
+      candidateId: studentId
+    }).populate('jobId');
+
+    if (!application) {
+      return errorResponse(res, 'Application not found', 404);
+    }
+
+    const job = application.jobId;
+
+    console.log('🎤 Starting transcription for interview responses...');
+    const startTranscription = Date.now();
+
+    // PHASE 1: Transcribe all video responses (30-60 seconds)
+    const transcribedResponses = [];
+    
+    for (const response of responses) {
+      if (response.videoUrl) {
+        try {
+          console.log(`Transcribing response ${response.questionId}...`);
+          
+          // Transcribe video to text
+          const transcription = await speechToTextService.transcribeVideo(
+            response.videoUrl
+          );
+          
+          transcribedResponses.push({
+            questionId: response.questionId,
+            question: response.question,
+            answerTranscript: transcription.text, // ✅ Real answer text
+            transcriptionConfidence: transcription.confidence,
+            transcriptionLanguage: transcription.language || 'en-US',
+            transcriptionDuration: transcription.duration,
+            transcriptionError: transcription.error || null,
+            videoUrl: response.videoUrl, // Temporary (will be deleted)
+            videoKey: response.videoKey,
+            timestamp: response.timestamp || new Date()
+          });
+          
+          console.log(`✅ Transcribed (${transcription.text.length} chars, confidence: ${transcription.confidence})`);
+          
+        } catch (transcriptionError) {
+          console.error(`❌ Transcription failed for question ${response.questionId}:`, transcriptionError);
+          
+          // Continue with error transcript instead of failing completely
+          transcribedResponses.push({
+            questionId: response.questionId,
+            question: response.question,
+            answerTranscript: '[Transcription failed]',
+            transcriptionConfidence: 0,
+            transcriptionError: transcriptionError.message,
+            videoUrl: response.videoUrl,
+            videoKey: response.videoKey,
+            timestamp: response.timestamp || new Date()
+          });
+        }
+      } else {
+        // No video (shouldn't happen, but handle gracefully)
+        transcribedResponses.push({
+          questionId: response.questionId,
+          question: response.question,
+          answerTranscript: '[No video response]',
+          transcriptionConfidence: 0,
+          videoUrl: null,
+          videoKey: null,
+          timestamp: response.timestamp || new Date()
+        });
+      }
+    }
+
+    const transcriptionTime = ((Date.now() - startTranscription) / 1000).toFixed(2);
+    console.log(`✅ Transcription complete in ${transcriptionTime}s`);
+
+    console.log('🤖 Starting AI evaluation with transcripts...');
+    const startEvaluation = Date.now();
+
+    // PHASE 2: Evaluate using REAL transcripts (10-20 seconds)
+    const evaluation = await aiInterviewService.evaluateCompleteInterview(
+      transcribedResponses, // Now has actual transcripts!
+      job.description
+    );
+
+    // Generate personalized feedback
+    const feedback = await aiInterviewService.generateInterviewFeedback(
+      evaluation,
+      job.description
+    );
+
+    const evaluationTime = ((Date.now() - startEvaluation) / 1000).toFixed(2);
+    console.log(`✅ AI evaluation complete in ${evaluationTime}s`);
+
+    // Create interview record with transcripts
+    const interview = new Interview({
+      studentId,
+      jobId,
+      applicationId,
+      type: 'screening',
+      status: 'completed',
+      startTime: new Date(Date.now() - (totalQuestions * 2 * 60 * 1000)), // Estimate start time
+      endTime: new Date(),
+      
+      // Preliminary score (based on transcript evaluation)
+      preliminaryScore: evaluation.overallScore,
+      score: evaluation.overallScore, // Will be updated with final score later
+      
+      conversation: transcribedResponses.map(response => ({
+        type: 'qa',
+        question: response.question,
+        questionId: response.questionId,
+        
+        // Transcript data
+        answerTranscript: response.answerTranscript,
+        transcriptionConfidence: response.transcriptionConfidence,
+        transcriptionLanguage: response.transcriptionLanguage,
+        transcriptionDuration: response.transcriptionDuration,
+        transcriptionError: response.transcriptionError,
+        
+        // Video data (temporary)
+        videoUrl: response.videoUrl,
+        videoKey: response.videoKey,
+        
+        timestamp: response.timestamp,
+        
+        // Analysis status
+        analysisStatus: {
+          transcribed: true,
+          videoAnalyzed: false,
+          audioAnalyzed: false,
+          videoDeleted: false
+        }
+      })),
+      
+      evaluation: {
+        technicalScore: evaluation.categoryScores.technicalAccuracy,
+        communicationScore: evaluation.categoryScores.communication,
+        problemSolvingScore: evaluation.categoryScores.relevance,
+        overallScore: evaluation.overallScore,
+        feedback: feedback,
+        strengths: evaluation.strengths,
+        improvements: evaluation.improvements,
+        recommendation: evaluation.recommendation
+      },
+      
+      analysisComplete: false // Video/audio analysis pending
+    });
+
+    await interview.save();
+
+    // Update application with interview details
+    application.interviewCompleted = true;
+    application.interviewScore = evaluation.overallScore;
+    application.status = evaluation.recommendation === 'hire' ? 'reviewing' : 'pending';
+    await application.save();
+
+    console.log(`✅ Interview saved with preliminary score: ${evaluation.overallScore}`);
+
+    // PHASE 3: Schedule async video/audio analysis (5-10 minutes)
+    // This runs in the background and updates the interview when complete
+    scheduleAsyncAnalysis(interview._id);
+
+    const totalTime = ((Date.now() - startTranscription) / 1000).toFixed(2);
+    console.log(`✅ Interview submission complete in ${totalTime}s (analysis scheduled)`);
+
+    return successResponse(res, {
+      interviewId: interview._id,
+      score: evaluation.overallScore,
+      applicationId: application._id,
+      status: application.status,
+      evaluation: {
+        overallScore: evaluation.overallScore,
+        strengths: evaluation.strengths,
+        improvements: evaluation.improvements,
+        feedback: feedback
+      },
+      analysisStatus: {
+        transcriptionComplete: true,
+        aiEvaluationComplete: true,
+        videoAnalysisPending: true,
+        audioAnalysisPending: true,
+        estimatedCompletionTime: '5-10 minutes'
+      }
+    }, 'Screening interview submitted successfully. Final analysis in progress.', 201);
+
+  } catch (error) {
+    console.error('Screening interview submission error:', error);
+    return errorResponse(res, 'Failed to submit screening interview: ' + error.message, 500);
+  }
+});
+
+/**
+ * Schedule async video/audio analysis
+ * This runs in background after interview submission
+ */
+const scheduleAsyncAnalysis = (interviewId) => {
+  // Import the analysis service (we'll create this next)
+  const interviewAnalysisService = require('../services/interviewAnalysisService');
+  
+  // Run analysis after 5 second delay (to ensure response sent to client)
+  setTimeout(async () => {
+    try {
+      console.log(`🎬 Starting async analysis for interview ${interviewId}`);
+      await interviewAnalysisService.analyzeCompletedInterview(interviewId);
+      console.log(`✅ Async analysis complete for interview ${interviewId}`);
+    } catch (error) {
+      console.error(`❌ Async analysis failed for interview ${interviewId}:`, error);
+      
+      // Mark interview as having analysis error (don't fail completely)
+      const Interview = require('../models/Interview');
+      await Interview.findByIdAndUpdate(interviewId, {
+        analysisComplete: true,
+        'analysis.error': error.message
+      });
+    }
+  }, 5000); // 5 second delay
+};
+
+// Get job-specific leaderboard
+const getJobLeaderboard = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+
+  try {
+    // Get all completed screening interviews for this job
+    const interviews = await Interview.find({
+      jobId,
+      type: 'screening',
+      status: 'completed'
+    })
+    .populate('studentId', 'name email profile')
+    .sort({ score: -1 }) // Sort by score descending
+    .select('studentId score endTime');
+
+    // Format leaderboard data
+    const leaderboard = interviews.map((interview, index) => ({
+      rank: index + 1,
+      candidateId: interview.studentId._id,
+      candidateName: interview.studentId.name,
+      candidateEmail: interview.studentId.email,
+      score: interview.score,
+      interviewDate: interview.endTime,
+      isTopPerformer: index < 3 // Top 3 are highlighted
+    }));
+
+    // Calculate statistics
+    const scores = interviews.map(i => i.score);
+    const stats = {
+      totalCandidates: interviews.length,
+      averageScore: scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0,
+      topScore: scores.length > 0 ? Math.max(...scores) : 0,
+      medianScore: scores.length > 0 ? scores[Math.floor(scores.length / 2)] : 0
+    };
+
+    return successResponse(res, {
+      leaderboard,
+      stats
+    }, 'Job leaderboard retrieved successfully');
+
+  } catch (error) {
+    console.error('Leaderboard retrieval error:', error);
+    return errorResponse(res, 'Failed to retrieve leaderboard: ' + error.message, 500);
+  }
+});
+
 module.exports = {
   startInterview,
   getInterview,
@@ -494,5 +795,8 @@ module.exports = {
   analyzeAudio,
   finishInterview,
   getInterviewHistory,
-  cancelInterview
+  cancelInterview,
+  generateAIQuestions,
+  submitScreeningInterview,
+  getJobLeaderboard
 };

@@ -48,28 +48,28 @@ const StudentSidebar = () => {
       current: location.pathname === '/student-dashboard/applications'
     },
     {
-      name: 'Interview History',
-      href: '/student-dashboard/interview-history',
-      icon: HiClock,
-      current: location.pathname === '/student-dashboard/interview-history'
-    },
-    {
-      name: 'Live Interview',
-      href: '/student-dashboard/live-interview',
+      name: 'Mock Interview',
+      href: '/student-dashboard/interview/start',
       icon: HiVideoCamera,
-      current: location.pathname === '/student-dashboard/live-interview'
-    },
-    {
-      name: 'Results & Analytics',
-      href: '/student-dashboard/results',
-      icon: HiChartBar,
-      current: location.pathname === '/student-dashboard/results'
+      current: location.pathname.includes('/student-dashboard/interview')
     },
     {
       name: 'Leaderboard',
       href: '/student-dashboard/leaderboard',
       icon: HiStar,
       current: location.pathname === '/student-dashboard/leaderboard'
+    },
+    {
+      name: 'Interview History',
+      href: '/student-dashboard/interview-history',
+      icon: HiClock,
+      current: location.pathname === '/student-dashboard/interview-history'
+    },
+    {
+      name: 'Results & Analytics',
+      href: '/student-dashboard/results',
+      icon: HiChartBar,
+      current: location.pathname === '/student-dashboard/results'
     },
     {
       name: 'Recommendations',

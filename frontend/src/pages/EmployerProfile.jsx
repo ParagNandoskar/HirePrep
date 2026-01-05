@@ -36,7 +36,12 @@ const EmployerProfile = () => {
     console.log('DEBUG: user:', user)
     console.log('DEBUG: authToken exists:', !!localStorage.getItem('authToken'))
     
+    // Prevent duplicate fetches during React Strict Mode
+    let isCancelled = false
+    
     const fetchProfile = async () => {
+      if (isCancelled) return
+      
       console.log('DEBUG: Starting fetchProfile...')
       try {
         const response = await companiesAPI.getProfile()
@@ -83,7 +88,11 @@ const EmployerProfile = () => {
       } catch (error) {
         console.error('Error fetching profile:', error)
         // If profile doesn't exist (404), that's normal for new users
-        if (error.message && !error.message.includes('404') && !error.message.includes('not found')) {
+        // Also ignore "user already exists" errors as they indicate caching issues
+        if (error.message && 
+            !error.message.includes('404') && 
+            !error.message.includes('not found') &&
+            !error.message.includes('user already exists')) {
           addNotification({
             type: 'error',
             message: 'Failed to load profile data'
@@ -105,7 +114,12 @@ const EmployerProfile = () => {
     } else {
       setIsLoading(false)
     }
-  }, [user, addNotification])
+    
+    // Cleanup function to cancel fetch if component unmounts
+    return () => {
+      isCancelled = true
+    }
+  }, [user]) // Removed addNotification from dependencies to prevent infinite loop
 
   const handleInputChange = (e) => {
     const { name, value } = e.target

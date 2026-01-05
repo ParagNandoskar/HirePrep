@@ -160,6 +160,21 @@ const jobSchema = new mongoose.Schema({
     }]
   },
   
+  // Screening Interview Questions
+  interviewQuestions: [{
+    question: {
+      type: String,
+      required: true
+    },
+    expectedAnswer: String,
+    timeLimit: {
+      type: Number, // in minutes
+      default: 2,
+      min: 1,
+      max: 10
+    }
+  }],
+  
   // Job status
   status: {
     type: String,

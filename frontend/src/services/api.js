@@ -55,6 +55,14 @@ export const apiService = {
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ message: 'Request failed' }))
+          
+          // Don't log 404 errors for resume endpoints as they're expected when no resume exists
+          const isResumeNotFound = response.status === 404 && endpoint.includes('/resumes')
+          
+          if (!isResumeNotFound) {
+            console.error('API request failed:', errorData.message || `HTTP error! status: ${response.status}`)
+          }
+          
           throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
         }
         
@@ -66,7 +74,13 @@ export const apiService = {
         const data = await response.json()
         return data
       } catch (error) {
-        console.error('API request failed:', error)
+        // Don't log 404 errors for resume endpoints as they're expected when no resume exists
+        const isResumeNotFound = error.message?.includes('No resume found') || 
+                                (error.message?.includes('404') && endpoint.includes('/resumes'))
+        
+        if (!isResumeNotFound) {
+          console.error('API request failed:', error)
+        }
         throw error
       } finally {
         // Remove from cache after completion to allow future requests
@@ -260,7 +274,34 @@ export const resumeAPI = {
     formData.append('resume', file)
     return apiService.uploadFile('/resumes/upload', formData)
   },
-  syncSkills: () => apiService.post('/resumes/sync-skills'),
+  syncSkills: async () => {
+    try {
+      // First check if resumes exist to avoid 404 error
+      const resumesResponse = await apiService.get('/resumes')
+      const resumes = resumesResponse?.data?.resumes || []
+      
+      if (!resumes || resumes.length === 0) {
+        // Return a structured response indicating no resume available
+        return { 
+          success: false, 
+          message: 'No resume available to sync skills from',
+          noResume: true 
+        }
+      }
+      
+      // If resume exists, proceed with sync
+      return apiService.post('/resumes/sync-skills')
+    } catch (error) {
+      if (error.message?.includes('No resume found') || error.message?.includes('404')) {
+        return { 
+          success: false, 
+          message: 'No resume available to sync skills from',
+          noResume: true 
+        }
+      }
+      throw error
+    }
+  },
   deleteResume: (id) => apiService.delete(`/resumes/${id}`),
   viewResume: (id) => `${API_BASE_URL}/resumes/view/${id}`,
   downloadResume: (candidateId) => apiService.get(`/resumes/download/${candidateId}`),
@@ -291,7 +332,7 @@ export const candidatesAPI = {
 
 // Companies API  
 export const companiesAPI = {
-  getProfile: () => apiService.get('/companies/profile'),
+  getProfile: () => apiService.get(`/companies/profile?_t=${Date.now()}`), // Add cache busting
   updateProfile: (profileData) => apiService.put('/companies/profile', profileData),
   uploadLogo: (file) => {
     const formData = new FormData()

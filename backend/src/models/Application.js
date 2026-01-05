@@ -130,6 +130,17 @@ const applicationSchema = new mongoose.Schema({
     }
   }],
   
+  // Screening Interview Fields
+  interviewCompleted: {
+    type: Boolean,
+    default: false
+  },
+  interviewScore: {
+    type: Number,
+    min: 0,
+    max: 100
+  },
+  
   // Assessment Results
   assessments: [{
     type: {

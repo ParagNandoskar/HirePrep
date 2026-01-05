@@ -1,4 +1,4 @@
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand, PutBucketPolicyCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const multer = require('multer');
 const path = require('path');
@@ -39,13 +39,14 @@ const s3Storage = (options = {}) => {
               Key: fileName,
               Body: buffer,
               ContentType: file.mimetype,
-              // Make profile images publicly readable
-              ...(folder === 'profile-images' && { ACL: 'public-read' }),
+              // Add cache control for better performance
+              CacheControl: 'max-age=31536000', // 1 year cache
               Metadata: {
                 fieldName: file.fieldname,
                 uploadTime: new Date().toISOString(),
                 userId: req.user ? req.user.id : 'anonymous',
-                originalName: file.originalname
+                originalName: file.originalname,
+                publicAccess: folder === 'profile-images' ? 'true' : 'false'
               }
             };
 
@@ -65,6 +66,14 @@ const s3Storage = (options = {}) => {
               size: buffer.length
             });
           } catch (error) {
+            console.error('❌ S3 Upload Error:', {
+              message: error.message,
+              code: error.code,
+              statusCode: error.$metadata?.httpStatusCode,
+              requestId: error.$metadata?.requestId,
+              bucket: process.env.AWS_S3_BUCKET,
+              region: process.env.AWS_REGION
+            });
             cb(error);
           }
         });
@@ -133,6 +142,27 @@ const uploadProfileImageToS3 = multer({
   },
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit for images
+  }
+});
+
+// Multer configuration for interview video upload
+const uploadInterviewVideoToS3 = multer({
+  storage: s3Storage({
+    folder: 'interview-videos',
+    allowedTypes: ['video/webm', 'video/mp4', 'video/quicktime'],
+    maxSize: 100 * 1024 * 1024 // 100MB
+  }),
+  fileFilter: (req, file, cb) => {
+    // Allow video files
+    const allowedTypes = ['video/webm', 'video/mp4', 'video/quicktime'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files (WebM, MP4, MOV) are allowed'), false);
+    }
+  },
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100MB limit for videos
   }
 });
 
@@ -205,13 +235,47 @@ const checkS3Connection = async () => {
   }
 };
 
+// Helper function to set bucket policy for public read access to profile images
+const setS3BucketPolicy = async () => {
+  try {
+    const bucketPolicy = {
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Sid: 'PublicReadGetObject',
+          Effect: 'Allow',
+          Principal: '*',
+          Action: 's3:GetObject',
+          Resource: `arn:aws:s3:::${process.env.AWS_S3_BUCKET}/profile-images/*`
+        }
+      ]
+    };
+
+    const command = new PutBucketPolicyCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Policy: JSON.stringify(bucketPolicy)
+    });
+
+    await s3Client.send(command);
+    return { success: true, message: 'Bucket policy updated for public profile images' };
+  } catch (error) {
+    return { 
+      success: false, 
+      message: `Failed to update bucket policy: ${error.message}`,
+      error: error
+    };
+  }
+};
+
 module.exports = {
   s3Client,
   uploadToS3,
   uploadProfileImageToS3,
+  uploadInterviewVideoToS3,
   deleteFromS3,
   getSignedFileUrl,
   getS3FileUrl,
   extractFileKeyFromUrl,
-  checkS3Connection
+  checkS3Connection,
+  setS3BucketPolicy
 };

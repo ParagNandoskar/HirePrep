@@ -621,22 +621,49 @@ const deleteResume = asyncHandler(async (req, res) => {
   }
 
   try {
+    console.log(`🗑️ Starting deletion process for resume: ${resume.originalFileName}`);
+    
     // Delete file from S3
     if (resume.fileKey) {
-      // Use stored file key
+      console.log(`🗑️ Deleting file from S3 with key: ${resume.fileKey}`);
       await deleteFromS3(resume.fileKey);
     } else if (resume.fileUrl) {
       // Extract file key from URL (fallback for old records)
       const fileKey = extractFileKeyFromUrl(resume.fileUrl);
       if (fileKey) {
+        console.log(`🗑️ Deleting file from S3 with extracted key: ${fileKey}`);
         await deleteFromS3(fileKey);
       }
     }
 
+    // Remove resume-extracted skills from candidate profile
+    const Candidate = require('../models/Candidate');
+    const candidate = await Candidate.findOne({ userId });
+    
+    if (candidate) {
+      console.log(`🎯 Found candidate profile, checking for resume-extracted skills...`);
+      const originalSkillsCount = candidate.skills.length;
+      
+      // Remove all skills that were extracted from resumes
+      candidate.skills = candidate.skills.filter(skill => skill.source !== 'resume-extracted');
+      
+      const removedSkillsCount = originalSkillsCount - candidate.skills.length;
+      
+      if (removedSkillsCount > 0) {
+        await candidate.save();
+        console.log(`🗑️ Removed ${removedSkillsCount} resume-extracted skills from candidate profile`);
+      } else {
+        console.log(`ℹ️ No resume-extracted skills found in candidate profile`);
+      }
+    } else {
+      console.log(`ℹ️ No candidate profile found for user ${userId}`);
+    }
+
     // Delete resume from database
     await Resume.findByIdAndDelete(resume._id);
+    console.log(`✅ Resume deleted successfully from database`);
 
-    return successResponse(res, null, 'Resume deleted successfully');
+    return successResponse(res, null, 'Resume deleted successfully from both database and storage. Resume-extracted skills have been removed from your profile.');
   } catch (error) {
     console.error('Resume deletion error:', error);
     return errorResponse(res, 'Failed to delete resume', 500);

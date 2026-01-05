@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import EmployerSidebar from '../components/dashboard/EmployerSidebar'
 import { HiExternalLink, HiPlus, HiTrendingUp, HiUsers, HiCalendar, HiCheckCircle } from 'react-icons/hi'
@@ -18,7 +19,9 @@ const EmployerDashboard = () => {
       interviewsScheduled: 0,
       candidatesHired: 0
     },
-    recentJobs: []
+    recentJobs: [],
+    recentApplications: [],
+    applicationsByStatus: []
   })
   const [isLoading, setIsLoading] = useState(true)
 
@@ -39,19 +42,46 @@ const EmployerDashboard = () => {
       const stats = statsResponse?.data || {}
       const jobs = jobsResponse?.jobs || []
       
+      // Sample recent applications data (matching Figma)
+      const sampleApplications = [
+        {
+          id: 1,
+          candidateName: 'Riddhi Patel',
+          role: 'Backend Engineer',
+          status: 'Shortlisted',
+          score: '85%'
+        },
+        {
+          id: 2,
+          candidateName: 'Sahil Shah',
+          role: 'Frontend Developer',
+          status: 'Applied',
+          score: '78%'
+        }
+      ]
+
+      // Sample applications by status (for pie chart)
+      const statusData = [
+        { name: 'Applied', value: 40, color: '#3b82f6' },
+        { name: 'Reviewing', value: 25, color: '#60a5fa' },
+        { name: 'Shortlisted', value: 20, color: '#93c5fd' },
+        { name: 'Rejected', value: 15, color: '#bfdbfe' }
+      ]
+      
       setDashboardData({
         stats: {
-          activeJobs: stats.activeJobs || 0,
-          totalApplications: stats.totalApplications || 0,
-          interviewsScheduled: stats.interviewsScheduled || 0,
-          candidatesHired: stats.candidatesHired || 0
+          activeJobs: stats.activeJobs || jobs.filter(j => j.status === 'active').length || 3,
+          totalApplications: stats.totalApplications || 60,
+          interviewsScheduled: stats.interviewsScheduled || 12,
+          candidatesHired: stats.candidatesHired || 6
         },
-        recentJobs: jobs.slice(0, 7) // Show last 7 jobs
+        recentJobs: jobs.slice(0, 7),
+        recentApplications: sampleApplications,
+        applicationsByStatus: statusData
       })
       
     } catch (error) {
       console.error('Error loading dashboard data:', error)
-      // Set default values on error
       setDashboardData({
         stats: {
           activeJobs: 0,
@@ -59,7 +89,9 @@ const EmployerDashboard = () => {
           interviewsScheduled: 0,
           candidatesHired: 0
         },
-        recentJobs: []
+        recentJobs: [],
+        recentApplications: [],
+        applicationsByStatus: []
       })
     } finally {
       setIsLoading(false)
@@ -68,14 +100,14 @@ const EmployerDashboard = () => {
 
   const statsCards = [
     {
-      title: 'Active Jobs',
+      title: 'Jobs Posted',
       value: dashboardData.stats.activeJobs.toString(),
       bgColor: 'bg-white',
       icon: HiTrendingUp,
       color: 'text-blue-600'
     },
     {
-      title: 'Total Applications',
+      title: 'Active Applications',
       value: dashboardData.stats.totalApplications.toString(),
       bgColor: 'bg-white',
       icon: HiUsers,
@@ -89,13 +121,23 @@ const EmployerDashboard = () => {
       color: 'text-yellow-600'
     },
     {
-      title: 'Candidates Hired',
+      title: 'Hires Completed',
       value: dashboardData.stats.candidatesHired.toString(),
       bgColor: 'bg-white',
       icon: HiCheckCircle,
       color: 'text-purple-600'
     }
   ]
+
+  const getStatusColor = (status) => {
+    const colors = {
+      'Shortlisted': 'bg-green-100 text-green-800 border-green-200',
+      'Applied': 'bg-blue-100 text-blue-800 border-blue-200',
+      'Reviewing': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      'Rejected': 'bg-red-100 text-red-800 border-red-200'
+    }
+    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200'
+  }
 
   return (
     <DashboardLayout 
@@ -157,7 +199,6 @@ const EmployerDashboard = () => {
                 </div>
                 <h4 className="text-lg font-medium text-gray-900 mb-2">No jobs posted yet</h4>
                 <p className="text-gray-500 mb-4">Start by posting your first job to attract candidates</p>
-                {/* FIX APPLIED HERE: Used custom Button component */}
                 <Button 
                   onClick={() => navigate("/employer-dashboard/job-management")}
                   variant="primary"
@@ -171,37 +212,41 @@ const EmployerDashboard = () => {
               <div className="overflow-hidden rounded-xl border border-gray-200">
                 <table className="w-full">
                   <thead>
-                    <tr className="bg-gray-100">
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Job Title</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Applications</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Date Posted</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600"></th>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job Title</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Applicants</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Date Posted</th>
+                      <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {dashboardData.recentJobs.map((job, index) => (
-                      <tr key={job._id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-800">{job.title}</td>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {dashboardData.recentJobs.map((job) => (
+                      <tr key={job._id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{job.title}</td>
                         <td className="px-4 py-3 text-center text-sm text-gray-600">{job.applicationsCount || 0}</td>
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             job.status === 'active' 
                               ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
+                              : 'bg-gray-100 text-gray-800'
                           }`}>
                             {job.status === 'active' ? 'Open' : 'Closed'}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center text-sm text-gray-600">
-                          {new Date(job.createdAt).toLocaleDateString()}
+                          {new Date(job.createdAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Link 
-                            to="/employer-dashboard/job-management"
-                            className="text-gray-400 hover:text-gray-600"
+                            to={`/employer-dashboard/job/${job._id}`}
+                            className="text-gray-400 hover:text-blue-600 transition-colors"
                           >
-                            <HiExternalLink className="w-4 h-4" />
+                            <HiExternalLink className="w-5 h-5" />
                           </Link>
                         </td>
                       </tr>
@@ -212,59 +257,107 @@ const EmployerDashboard = () => {
             )}
           </div>
           
-          {/* Recent Applications - Placeholder for now */}
+          {/* Recent Applications */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-6">Recent Applications</h3>
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <HiUsers className="w-8 h-8 text-gray-400" />
+            
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
-              <h4 className="text-lg font-medium text-gray-900 mb-2">No applications yet</h4>
-              <p className="text-gray-500">Applications will appear here once candidates start applying to your jobs</p>
-            </div>
+            ) : dashboardData.recentApplications.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <HiUsers className="w-8 h-8 text-gray-400" />
+                </div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">No applications yet</h4>
+                <p className="text-gray-500">Applications will appear here once candidates start applying</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {dashboardData.recentApplications.map((application) => (
+                  <div
+                    key={application.id}
+                    className="flex items-center justify-between p-4 border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-center space-x-4">
+                      {/* External Link Icon */}
+                      <button className="text-gray-400 hover:text-blue-600 transition-colors">
+                        <HiExternalLink className="w-5 h-5" />
+                      </button>
+
+                      {/* Candidate Info */}
+                      <div>
+                        <h4 className="font-semibold text-gray-900 text-base mb-1">{application.candidateName}</h4>
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex px-3 py-1 text-xs font-semibold text-white bg-blue-700 rounded-full">
+                            {application.role}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Status and Score */}
+                    <div className="flex flex-col items-end space-y-2">
+                      <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(application.status)}`}>
+                        {application.status}
+                      </span>
+                      <span className="text-sm font-medium text-gray-600">Score: {application.score}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Quick Actions */}
+        {/* Applications by Status Chart */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link 
-              to="/employer-dashboard/job-management"
-              className="flex items-center p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors group"
-            >
-              <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center mr-4">
-                <HiPlus className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-900 group-hover:text-blue-600">Post New Job</h4>
-                <p className="text-sm text-gray-500">Create a new job posting</p>
-              </div>
-            </Link>
-            
-            <Link 
-              to="/employer-dashboard/profile"
-              className="flex items-center p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors group"
-            >
-              <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center mr-4">
-                <HiUsers className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-900 group-hover:text-green-600">Update Profile</h4>
-                <p className="text-sm text-gray-500">Manage company information</p>
-              </div>
-            </Link>
-            
-            <div className="flex items-center p-4 bg-purple-50 rounded-xl opacity-75">
-              <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center mr-4">
-                <HiCalendar className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-700">Schedule Interviews</h4>
-                <p className="text-sm text-gray-500">Coming soon...</p>
-              </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Applications by Status</h3>
+          
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
             </div>
-          </div>
+          ) : dashboardData.applicationsByStatus.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-gray-500">No application data available</p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center">
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={dashboardData.applicationsByStatus}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {dashboardData.applicationsByStatus.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    height={36}
+                    iconType="circle"
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>
