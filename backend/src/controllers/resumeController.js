@@ -438,16 +438,28 @@ const uploadResume = asyncHandler(async (req, res) => {
 const getResume = asyncHandler(async (req, res) => {
   const { userId } = req.params;
   
+  console.log('🔍 getResume called:');
+  console.log('  userId param:', userId);
+  console.log('  req.user:', req.user);
+  console.log('  req.user.id:', req.user?.id);
+  console.log('  req.user.role:', req.user?.role);
+  
   // Check if user is accessing their own resume or if they're authorized
   if (req.user.id !== userId && req.user.role !== 'company') {
+    console.log('  ❌ Access denied - user trying to access another resume');
     return errorResponse(res, 'Access denied', 403);
   }
 
   const resume = await Resume.findOne({ userId }).populate('userId', 'name email profile');
+  
+  console.log('  Resume found:', !!resume);
 
   if (!resume) {
+    console.log('  ❌ Resume not found in database');
     return errorResponse(res, 'Resume not found', 404);
   }
+  
+  console.log('  ✅ Returning resume:', resume.originalFileName);
 
   return successResponse(res, {
     resume: {

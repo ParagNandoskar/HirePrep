@@ -30,14 +30,11 @@ const JobManagementEmployer = () => {
       setIsLoading(true)
       const response = await jobsAPI.getMyJobs({ limit: 100 })
       
-      if (response && response.jobs) {
-        setJobs(response.jobs)
-        setFilteredJobs(response.jobs)
-      } else {
-        // Fallback sample data
-        setJobs([])
-        setFilteredJobs([])
-      }
+      // API returns { success: true, data: { jobs: [...], pagination: {...} } }
+      const jobs = response?.data?.jobs || response?.jobs || []
+      
+      setJobs(jobs)
+      setFilteredJobs(jobs)
     } catch (error) {
       console.error('Error fetching jobs:', error)
       setJobs([])
@@ -270,14 +267,16 @@ const JobManagementEmployer = () => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
                         <div className="flex items-center text-gray-600">
                           <HiLocationMarker className="w-4 h-4 mr-2" />
-                          {job.location || 'Not specified'}
+                          {job.location?.city && job.location?.state 
+                            ? `${job.location.city}, ${job.location.state}` 
+                            : job.location?.type || 'Not specified'}
                         </div>
                         <div className="flex items-center text-gray-600">
                           <HiCurrencyDollar className="w-4 h-4 mr-2" />
                           {formatSalary(
-                            job.compensation?.salaryMin,
-                            job.compensation?.salaryMax,
-                            job.compensation?.currency
+                            job.compensation?.salaryRange?.min,
+                            job.compensation?.salaryRange?.max,
+                            job.compensation?.salaryRange?.currency
                           )}
                         </div>
                         <div className="flex items-center text-gray-600">

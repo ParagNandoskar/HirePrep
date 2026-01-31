@@ -159,18 +159,63 @@ exports.completeInterview = async (req, res) => {
   try {
     const { sessionId, applicationId } = req.body;
 
+    console.log('🎯 Complete Interview Request:', { sessionId, applicationId });
+
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required' });
     }
 
     // Generate final analysis with combined scores
+    console.log('📊 Generating final analysis...');
     const analysis = await geminiVoiceService.generateFinalAnalysis(sessionId);
+    console.log('✅ Analysis generated:', { 
+      overallScore: analysis.overallScore,
+      hasStrengths: !!analysis.strengths,
+      hasImprovements: !!analysis.improvements  
+    });
 
     // Update application with comprehensive interview results
     if (applicationId) {
-      await Application.findByIdAndUpdate(applicationId, {
+      console.log(`💾 Updating application ${applicationId}...`);
+      
+      // Get conversation history to count questions AND save transcript
+      const context = await geminiVoiceService.getInterviewProgress(sessionId);
+      const questionsAnswered = context ? context.conversationHistory.filter(h => h.type === 'candidate_answer').length : 0;
+      
+      // Build transcript from conversation history
+      const transcript = [];
+      if (context && context.conversationHistory) {
+        let questionNumber = 0;
+        context.conversationHistory.forEach(item => {
+          if (item.type === 'ai_question') {
+            questionNumber++;
+            transcript.push({
+              type: 'question',
+              content: item.content,
+              timestamp: item.timestamp,
+              questionNumber: questionNumber
+            });
+          } else if (item.type === 'candidate_answer') {
+            transcript.push({
+              type: 'answer',
+              content: item.content,
+              timestamp: item.timestamp,
+              questionNumber: questionNumber
+            });
+          }
+        });
+      }
+      
+      console.log(`📝 Saving interview transcript with ${transcript.length} entries (${questionsAnswered} Q&A pairs)`);
+      
+      const updatedApp = await Application.findByIdAndUpdate(applicationId, {
+        interviewCompleted: true,  // Mark interview as completed
+        status: 'interviewed',     // Update status to show they have been interviewed
         interviewStatus: 'completed',
-        screeningScore: analysis.overallScore,
+        screeningScore: analysis.overallScore,  // MUST save screeningScore
+        interviewScore: analysis.overallScore,  // Save the interview score
+        questionsAnswered: questionsAnswered,   // Track number of questions answered
+        interviewTranscript: transcript,        // Save full Q&A transcript
         aiAnalysis: {
           scores: {
             overall: analysis.overallScore,
@@ -188,10 +233,28 @@ exports.completeInterview = async (req, res) => {
           insights: analysis.insights,
           behavioralInsights: analysis.behavioralInsights,
           recommendation: analysis.recommendation,
-          integrityWarning: analysis.integrityWarning
+          integrityWarning: analysis.integrityWarning,
+          questionsAnswered: questionsAnswered
         },
         interviewCompletedAt: new Date()
-      });
+      }, { new: true });
+      
+      if (updatedApp) {
+        console.log(`✅ Application ${applicationId} updated successfully`);
+        console.log(`   - interviewCompleted: ${updatedApp.interviewCompleted}`);
+        console.log(`   - status: ${updatedApp.status}`);
+        console.log(`   - screeningScore: ${updatedApp.screeningScore}`);
+        
+        // Generate detailed AI feedback asynchronously (don't wait for it)
+        const detailedFeedbackService = require('../services/detailedFeedbackService');
+        detailedFeedbackService.generateDetailedFeedback(applicationId)
+          .then(() => console.log(`✅ Detailed feedback generated for ${applicationId}`))
+          .catch(err => console.error(`❌ Error generating detailed feedback:`, err));
+      } else {
+        console.error(`❌ Application ${applicationId} NOT FOUND in database!`);
+      }
+    } else {
+      console.log('⚠️  No applicationId provided - skipping application update');
     }
 
     res.json(analysis);

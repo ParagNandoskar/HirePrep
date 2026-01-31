@@ -156,13 +156,7 @@ const LiveInterview = () => {
   const totalQuestions = currentQuestions.length
 
   useEffect(() => {
-    // Allow both practice mode (needs type/role) and job application mode (needs jobId)
-    if (!isJobApplication && (!type || !role)) {
-      navigate('/student-dashboard/interview/start')
-      return
-    }
-
-    // For job applications, skip if missing required fields
+    // Check if job application mode has required fields
     if (isJobApplication && (!jobId || !applicationId)) {
       navigate('/student-dashboard/applications')
       return

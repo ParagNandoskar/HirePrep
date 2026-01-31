@@ -8,8 +8,7 @@ import StudentDashboard from './pages/StudentDashboard'
 import StudentApplications from './pages/StudentApplications'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerApplicationsReview from './pages/EmployerApplicationsReview'
-import EmployerInterviewScheduling from './pages/EmployerInterviewScheduling'
-import InterviewStart from './pages/InterviewStart'
+import EmployerProfile from './pages/EmployerProfile'
 import LiveInterview from './pages/LiveInterview'
 import InterviewResults from './pages/InterviewResults'
 import InterviewHistory from './pages/InterviewHistory'
@@ -17,7 +16,6 @@ import Leaderboard from './pages/Leaderboard'
 import ProfileManagement from './pages/ProfileManagement'
 import ResumeManagement from './pages/ResumeManagement'
 import ExploreJobs from './pages/ExploreJobs'
-import EmployerProfile from './pages/EmployerProfile'
 import JobManagement from './pages/JobManagement'
 import JobManagementEmployer from './pages/JobManagementEmployer'
 import JobForm from './pages/JobForm'
@@ -96,17 +94,17 @@ const App = () => {
                 <ExploreJobs />
               </ProtectedRoute>
             } />
-            <Route path="/student-dashboard/interview/start" element={
-              <ProtectedRoute requiredRole="candidate">
-                <InterviewStart />
-              </ProtectedRoute>
-            } />
             <Route path="/student-dashboard/interview/live" element={
               <ProtectedRoute requiredRole="candidate">
                 <LiveInterview />
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/interview/results" element={
+              <ProtectedRoute requiredRole="candidate">
+                <InterviewResults />
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/results" element={
               <ProtectedRoute requiredRole="candidate">
                 <InterviewResults />
               </ProtectedRoute>
@@ -161,11 +159,6 @@ const App = () => {
                 <EmployerApplicationsReview />
               </ProtectedRoute>
             } />
-            <Route path="/employer-dashboard/interview-scheduling" element={
-              <ProtectedRoute requiredRole="employer">
-                <EmployerInterviewScheduling />
-              </ProtectedRoute>
-            } />
             <Route path="/employer-dashboard/jobs" element={
               <ProtectedRoute requiredRole="employer">
                 <JobManagementEmployer />
@@ -194,6 +187,11 @@ const App = () => {
             <Route path="/employer-dashboard/job-leaderboard/:jobId" element={
               <ProtectedRoute requiredRole="employer">
                 <JobLeaderboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/employer-dashboard/company" element={
+              <ProtectedRoute requiredRole="employer">
+                <EmployerProfile />
               </ProtectedRoute>
             } />
           </Routes>

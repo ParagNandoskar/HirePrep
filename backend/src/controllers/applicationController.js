@@ -262,6 +262,39 @@ const updateApplicationStatus = asyncHandler(async (req, res) => {
   return successResponse(res, application, 'Application status updated successfully');
 });
 
+// Get detailed AI feedback for an interview
+const getDetailedFeedback = asyncHandler(async (req, res) => {
+  const { applicationId } = req.params;
+  const userId = req.user.id;
+  
+  // Fetch application
+  const application = await Application.findById(applicationId);
+  
+  if (!application) {
+    return errorResponse(res, 'Application not found', 404);
+  }
+  
+  // Check authorization - candidate can only see their own
+  if (application.candidateId.toString() !== userId && application.companyId.toString() !== userId) {
+    return errorResponse(res, 'Unauthorized access', 403);
+  }
+  
+  // Check if interview is completed
+  if (!application.interviewCompleted) {
+    return errorResponse(res, 'Interview not yet completed', 400);
+  }
+  
+  try {
+    const detailedFeedbackService = require('../services/detailedFeedbackService');
+    const feedback = await detailedFeedbackService.getDetailedFeedback(applicationId);
+    
+    return successResponse(res, feedback, 'Detailed feedback retrieved successfully');
+  } catch (error) {
+    console.error('Error getting detailed feedback:', error);
+    return errorResponse(res, 'Failed to generate detailed feedback. Please try again later.', 500);
+  }
+});
+
 module.exports = {
   // Candidate endpoints
   applyToJob,
@@ -270,6 +303,7 @@ module.exports = {
   updateApplication,
   deleteApplication,
   getApplicationStats,
+  getDetailedFeedback,
   
   // Company endpoints
   getCompanyApplications,

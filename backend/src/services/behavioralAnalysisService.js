@@ -34,17 +34,17 @@ class BehavioralAnalysisService {
                 rawAnalysis: analysis,
                 videoScore: videoScore,
                 metrics: {
-                    eyeContact: analysis.eyeContact || 0,
-                    engagement: analysis.engagement || 0,
-                    confidence: analysis.confidence || 0,
-                    attentiveness: analysis.attentiveness || 0,
-                    multiplePersons: analysis.multiplePersonsDetected || false,
-                    lookingAway: analysis.lookingAwayPercentage || 0
+                    eyeContact: analysis.eyeContactScore || 0,
+                    engagement: analysis.engagementScore || 0,
+                    confidence: analysis.confidenceScore || 0,
+                    attentiveness: analysis.engagementScore || 0, // Use engagement as attentiveness
+                    multiplePersons: false, // Python service doesn't provide this
+                    lookingAway: 0 // Python service doesn't provide this
                 },
                 cheatingIndicators: {
-                    multiplePersons: analysis.multiplePersonsDetected || false,
-                    frequentLookAway: (analysis.lookingAwayPercentage || 0) > 50,
-                    noFaceDetected: analysis.noFaceFrames > (videoFrames.length * 0.3)
+                    multiplePersons: false,
+                    frequentLookAway: false,
+                    noFaceDetected: (analysis.analyzedFrames || 0) === 0
                 }
             };
         } catch (error) {
@@ -133,16 +133,14 @@ class BehavioralAnalysisService {
             attentiveness: 0.2
         };
 
-        const eyeContact = analysis.eyeContact || 50;
-        const engagement = analysis.engagement || 50;
-        const confidence = analysis.confidence || 50;
-        const attentiveness = analysis.attentiveness || 50;
+        const eyeContact = analysis.eyeContactScore || 50;
+        const engagement = analysis.engagementScore || 50;
+        const confidence = analysis.confidenceScore || 50;
+        const attentiveness = analysis.engagementScore || 50; // Use engagement as attentiveness
 
-        // Penalties for cheating indicators
+        // Minimal penalty since Python service doesn't provide cheating indicators yet
         let penalty = 0;
-        if (analysis.multiplePersonsDetected) penalty += 20;
-        if ((analysis.lookingAwayPercentage || 0) > 50) penalty += 15;
-        if (analysis.noFaceFrames > (analysis.analyzedFrames * 0.3)) penalty += 10;
+        if ((analysis.analyzedFrames || 0) === 0) penalty += 10; // No frames analyzed
 
         const baseScore = (
             eyeContact * weights.eyeContact +

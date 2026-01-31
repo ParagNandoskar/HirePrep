@@ -33,6 +33,11 @@ const analyzeCompletedInterview = async (interviewId) => {
       throw new Error('Interview not found');
     }
 
+    console.log(`📊 Analysis Configuration:`);
+    console.log(`   Video Service: ${VIDEO_ANALYSIS_SERVICE || 'NOT CONFIGURED'}`);
+    console.log(`   Audio Service: ${AUDIO_ANALYSIS_SERVICE || 'NOT CONFIGURED'}`);
+    console.log(`   Questions to analyze: ${interview.conversation.length}`);
+
     const videoAnalysisResults = [];
     const audioAnalysisResults = [];
 
@@ -76,12 +81,16 @@ const analyzeCompletedInterview = async (interviewId) => {
       videoAnalysis: {
         ...aggregateVideoAnalysis,
         analyzedAt: new Date(),
-        processingTime: (Date.now() - startTime) / 1000
+        processingTime: (Date.now() - startTime) / 1000,
+        isMock: aggregateVideoAnalysis.isMock || false,
+        analysisMethod: aggregateVideoAnalysis.isMock ? 'MOCK DATA' : 'REAL ANALYSIS'
       },
       audioAnalysis: {
         ...aggregateAudioAnalysis,
         analyzedAt: new Date(),
-        processingTime: (Date.now() - startTime) / 1000
+        processingTime: (Date.now() - startTime) / 1000,
+        isMock: aggregateAudioAnalysis.isMock || false,
+        analysisMethod: aggregateAudioAnalysis.isMock ? 'MOCK DATA' : 'REAL ANALYSIS'
       }
     };
 
@@ -98,7 +107,19 @@ const analyzeCompletedInterview = async (interviewId) => {
 
     await interview.save();
 
+    const analysisType = (interview.analysis.videoAnalysis.isMock || interview.analysis.audioAnalysis.isMock) 
+      ? '⚠️ MOCK ANALYSIS' 
+      : '✅ REAL ANALYSIS';
+    
     console.log(`✅ Analysis complete. Final score: ${finalScore} (preliminary: ${interview.preliminaryScore})`);
+    console.log(`   Analysis Type: ${analysisType}`);
+    
+    if (interview.analysis.videoAnalysis.isMock || interview.analysis.audioAnalysis.isMock) {
+      console.warn(`🚨 WARNING: This interview used MOCK analysis data.`);
+      console.warn(`   To enable real analysis, please start the Python services:`);
+      console.warn(`   - Video Analysis: ${VIDEO_ANALYSIS_SERVICE}`);
+      console.warn(`   - Audio Analysis: ${AUDIO_ANALYSIS_SERVICE}`);
+    }
 
     // Delete videos from S3 now that analysis is complete
     console.log('🗑️ Deleting videos from S3...');
@@ -120,21 +141,28 @@ const analyzeCompletedInterview = async (interviewId) => {
  */
 const analyzeVideo = async (videoUrl) => {
   try {
+    console.log(`🔍 Checking video analysis service at: ${VIDEO_ANALYSIS_SERVICE}`);
+    
     // Check if video analysis service is available
-    if (!VIDEO_ANALYSIS_SERVICE) {
+    if (!VIDEO_ANALYSIS_SERVICE || VIDEO_ANALYSIS_SERVICE.includes('localhost')) {
+      console.warn('⚠️ Video Analysis Service not configured or running on localhost');
+      console.warn('🚨 USING MOCK DATA - To enable real analysis, start video-analysis service');
       return getMockVideoAnalysis();
     }
 
+    console.log('🚀 Sending video to analysis service...');
     const response = await axios.post(
       `${VIDEO_ANALYSIS_SERVICE}/analyze-video`,
       { videoUrl },
       { timeout: 300000 } // 5 minute timeout
     );
 
+    console.log('✅ Real video analysis completed successfully');
     return response.data;
 
   } catch (error) {
-    console.warn('Video analysis service unavailable, using mock data:', error.message);
+    console.error('❌ Video analysis service error:', error.message);
+    console.warn('🚨 FALLING BACK TO MOCK DATA');
     return getMockVideoAnalysis();
   }
 };
@@ -144,21 +172,28 @@ const analyzeVideo = async (videoUrl) => {
  */
 const analyzeAudio = async (videoUrl) => {
   try {
+    console.log(`🔍 Checking audio analysis service at: ${AUDIO_ANALYSIS_SERVICE}`);
+    
     // Check if audio analysis service is available
-    if (!AUDIO_ANALYSIS_SERVICE) {
+    if (!AUDIO_ANALYSIS_SERVICE || AUDIO_ANALYSIS_SERVICE.includes('localhost')) {
+      console.warn('⚠️ Audio Analysis Service not configured or running on localhost');
+      console.warn('🚨 USING MOCK DATA - To enable real analysis, start audio-analysis service');
       return getMockAudioAnalysis();
     }
 
+    console.log('🚀 Sending audio to analysis service...');
     const response = await axios.post(
       `${AUDIO_ANALYSIS_SERVICE}/analyze-audio`,
       { videoUrl },
       { timeout: 300000 } // 5 minute timeout
     );
 
+    console.log('✅ Real audio analysis completed successfully');
     return response.data;
 
   } catch (error) {
-    console.warn('Audio analysis service unavailable, using mock data:', error.message);
+    console.error('❌ Audio analysis service error:', error.message);
+    console.warn('🚨 FALLING BACK TO MOCK DATA');
     return getMockAudioAnalysis();
   }
 };
@@ -269,6 +304,7 @@ const calculateFinalScore = (textScore, videoScore, audioScore) => {
  * Mock video analysis (for development without Python services)
  */
 const getMockVideoAnalysis = () => {
+  console.log('🎭 Generating MOCK video analysis data');
   return {
     emotionScores: [
       { emotion: 'neutral', score: 0.6, timestamp: new Date() },
@@ -279,7 +315,8 @@ const getMockVideoAnalysis = () => {
     engagementScore: 80,
     confidenceScore: 70,
     overallVideoScore: 75,
-    isMock: true
+    isMock: true,
+    mockReason: 'Video analysis service not available'
   };
 };
 
@@ -287,6 +324,7 @@ const getMockVideoAnalysis = () => {
  * Mock audio analysis (for development without Python services)
  */
 const getMockAudioAnalysis = () => {
+  console.log('🎭 Generating MOCK audio analysis data');
   return {
     toneAnalysis: {
       confidence: 72,
@@ -299,7 +337,8 @@ const getMockAudioAnalysis = () => {
     pitchVariation: 0.45,
     energyLevel: 70,
     overallAudioScore: 73,
-    isMock: true
+    isMock: true,
+    mockReason: 'Audio analysis service not available'
   };
 };
 

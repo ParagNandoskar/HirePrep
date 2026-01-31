@@ -303,6 +303,8 @@ export const resumeAPI = {
     }
   },
   deleteResume: (id) => apiService.delete(`/resumes/${id}`),
+  getResumeByUserId: (userId) => apiService.get(`/resumes/${userId}`),
+  getResumeSignedUrl: (userId) => apiService.get(`/resumes/${userId}/signed-url`),
   viewResume: (id) => `${API_BASE_URL}/resumes/view/${id}`,
   downloadResume: (candidateId) => apiService.get(`/resumes/download/${candidateId}`),
   reprocessResume: (candidateId) => apiService.post(`/resumes/reprocess/${candidateId}`)

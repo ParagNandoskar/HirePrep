@@ -1,4 +1,5 @@
 const Interview = require('../models/Interview');
+const Application = require('../models/Application');
 const Job = require('../models/Job');
 const Resume = require('../models/Resume');
 const interviewService = require('../services/interviewService');
@@ -418,44 +419,93 @@ const finishInterview = asyncHandler(async (req, res) => {
 
 // Get user's interview history
 const getInterviewHistory = asyncHandler(async (req, res) => {
-  const studentId = req.user.id;
-  const { page = 1, limit = 10 } = req.query;
+  const candidateId = req.user.id;
+  const { page = 1, limit = 50, status } = req.query;
 
   try {
-    const total = await Interview.countDocuments({ studentId });
+    // Query applications with completed interviews
+    const query = {
+      candidateId: candidateId,
+      $or: [
+        { status: 'interviewed' },
+        { interviewCompleted: true }
+      ]
+    };
 
-    const interviews = await Interview.find({ studentId })
-      .populate('jobId', 'title description companyId')
-      .populate('jobId.companyId', 'name profile')
-      .sort({ createdAt: -1 })
+    // If status filter is provided
+    if (status === 'completed') {
+      query.screeningScore = { $exists: true, $ne: null };
+    }
+
+    const total = await Application.countDocuments(query);
+
+    const applications = await Application.find(query)
+      .populate('jobId')
+      .populate({
+        path: 'jobId',
+        populate: { path: 'companyId' }
+      })
+      .sort({ interviewCompletedAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
-    const interviewsData = interviews.map(interview => ({
-      id: interview._id,
-      job: interview.jobId,
-      type: interview.type,
-      status: interview.status,
-      duration: interview.duration,
-      startTime: interview.startTime,
-      endTime: interview.endTime,
-      overallScore: interview.analysis?.overallScore || 0,
-      createdAt: interview.createdAt
-    }));
+    // Map applications to interview history format
+    const interviewsData = applications.map(app => {
+      const overallScore = app.screeningScore || 0;
+      const aiAnalysis = app.aiAnalysis || {};
+      const scores = aiAnalysis.scores || {};
+      
+      return {
+        _id: app._id,
+        type: 'Screening', // All are screening interviews for now
+        role: app.jobId?.title || 'Unknown Position',
+        company: app.jobId?.companyId?.name || 'Unknown Company',
+        difficulty: 'Medium', // Default
+        date: app.interviewCompletedAt || app.createdAt,
+        createdAt: app.createdAt,
+        duration: '25-30 min', // Typical screening interview duration
+        totalDuration: 1500, // 25 minutes in seconds
+        completedQuestions: app.questionsAnswered || 5,
+        totalQuestions: 5,
+        finalScore: overallScore,
+        overallScore: overallScore,
+        scores: {
+          confidence: scores.behavioral || scores.video || 0,
+          communication: scores.communication || 0,
+          technical: scores.technical || 0,
+          problemSolving: scores.problemSolving || 0
+        },
+        breakdown: {
+          contentScore: scores.content || 0,
+          behavioralScore: scores.behavioral || 0,
+          videoScore: scores.video || 0,
+          audioScore: scores.audio || 0
+        },
+        status: 'completed',
+        feedback: {
+          strengths: aiAnalysis.strengths || [],
+          improvements: aiAnalysis.improvements || []
+        },
+        hasTranscript: app.interviewTranscript && app.interviewTranscript.length > 0
+      };
+    });
 
     const response = {
-      data: interviewsData,
-      pagination: {
-        current: parseInt(page),
-        pages: Math.ceil(total / limit),
-        limit: parseInt(limit),
-        total: parseInt(total),
-        hasNext: page * limit < total,
-        hasPrev: page > 1
+      success: true,
+      data: {
+        interviews: interviewsData,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / limit),
+          limit: parseInt(limit),
+          total: parseInt(total),
+          hasNext: page * limit < total,
+          hasPrev: page > 1
+        }
       }
     };
 
-    return successResponse(res, response, 'Interview history retrieved successfully');
+    return res.status(200).json(response);
 
   } catch (error) {
     console.error('Interview history error:', error);
@@ -764,7 +814,8 @@ const getJobLeaderboard = asyncHandler(async (req, res) => {
       candidateEmail: interview.studentId.email,
       score: interview.score,
       interviewDate: interview.endTime,
-      isTopPerformer: index < 3 // Top 3 are highlighted
+      isTopPerformer: index < 10, // Top 10 are recommended to company
+      isRecommendedToCompany: index < 10
     }));
 
     // Calculate statistics

@@ -40,43 +40,24 @@ const EmployerDashboard = () => {
       ])
       
       const stats = statsResponse?.data || {}
-      const jobs = jobsResponse?.jobs || []
+      // API returns { data: { jobs: [...], pagination: {...} } }
+      const jobs = jobsResponse?.data?.jobs || jobsResponse?.jobs || []
       
-      // Sample recent applications data (matching Figma)
-      const sampleApplications = [
-        {
-          id: 1,
-          candidateName: 'Riddhi Patel',
-          role: 'Backend Engineer',
-          status: 'Shortlisted',
-          score: '85%'
-        },
-        {
-          id: 2,
-          candidateName: 'Sahil Shah',
-          role: 'Frontend Developer',
-          status: 'Applied',
-          score: '78%'
-        }
-      ]
-
-      // Sample applications by status (for pie chart)
-      const statusData = [
-        { name: 'Applied', value: 40, color: '#3b82f6' },
-        { name: 'Reviewing', value: 25, color: '#60a5fa' },
-        { name: 'Shortlisted', value: 20, color: '#93c5fd' },
-        { name: 'Rejected', value: 15, color: '#bfdbfe' }
-      ]
+      // Get real applications data
+      const recentApplications = stats.recentApplications || []
+      
+      // Get real applications by status data
+      const statusData = stats.applicationsByStatus || []
       
       setDashboardData({
         stats: {
-          activeJobs: stats.activeJobs || jobs.filter(j => j.status === 'active').length || 3,
-          totalApplications: stats.totalApplications || 60,
-          interviewsScheduled: stats.interviewsScheduled || 12,
-          candidatesHired: stats.candidatesHired || 6
+          activeJobs: stats.activeJobs || 0,
+          totalApplications: stats.totalApplications || 0,
+          interviewsScheduled: stats.interviewsScheduled || 0,
+          candidatesHired: stats.candidatesHired || 0
         },
         recentJobs: jobs.slice(0, 7),
-        recentApplications: sampleApplications,
+        recentApplications: recentApplications,
         applicationsByStatus: statusData
       })
       

@@ -27,6 +27,7 @@ const applicationSchema = new mongoose.Schema({
       'assessment',        // Technical/skill assessment
       'interview-scheduled', // Interview scheduled
       'interviewing',      // In interview process
+      'interviewed',       // Interview completed
       'final-round',       // Final interview round
       'decision-pending',  // Waiting for final decision
       'offer-extended',    // Offer made
@@ -135,10 +136,95 @@ const applicationSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  interviewCompletedAt: {
+    type: Date
+  },
+  interviewStatus: {
+    type: String,
+    enum: ['pending', 'in-progress', 'completed', 'cancelled'],
+    default: 'pending'
+  },
   interviewScore: {
     type: Number,
     min: 0,
     max: 100
+  },
+  screeningScore: {
+    type: Number,
+    min: 0,
+    max: 100
+  },
+  questionsAnswered: {
+    type: Number,
+    default: 0
+  },
+  interviewTranscript: [{
+    type: {
+      type: String,
+      enum: ['question', 'answer']
+    },
+    content: String,
+    timestamp: Date,
+    questionNumber: Number
+  }],
+  aiAnalysis: {
+    scores: {
+      overall: Number,
+      content: Number,
+      behavioral: Number,
+      video: Number,
+      audio: Number,
+      communication: Number,
+      technical: Number,
+      problemSolving: Number,
+      culturalFit: Number
+    },
+    strengths: [String],
+    improvements: [String],
+    insights: String,
+    behavioralInsights: {
+      eyeContact: String,
+      confidence: String,
+      engagement: String
+    },
+    recommendation: String,
+    integrityWarning: String,
+    questionsAnswered: Number
+  },
+  
+  // Comprehensive AI-Generated Detailed Feedback
+  detailedFeedback: {
+    summary: String, // Executive summary of interview performance
+    detailedAnalysis: String, // In-depth analysis of responses
+    skillBreakdown: {
+      communication: {
+        score: Number,
+        feedback: String,
+        whyItMatters: String,
+        howToImprove: [String]
+      },
+      technical: {
+        score: Number,
+        feedback: String,
+        whyItMatters: String,
+        howToImprove: [String]
+      },
+      problemSolving: {
+        score: Number,
+        feedback: String,
+        whyItMatters: String,
+        howToImprove: [String]
+      },
+      confidence: {
+        score: Number,
+        feedback: String,
+        whyItMatters: String,
+        howToImprove: [String]
+      }
+    },
+    proTips: [String],
+    finalRecommendation: String,
+    generatedAt: Date
   },
   
   // Assessment Results

@@ -545,16 +545,6 @@ const JobManagement = () => {
                       </button>
                     </div>
 
-                    {/* Debug info - remove this after testing */}
-                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 text-xs">
-                      <strong>Debug Info:</strong><br/>
-                      Form State: {showCreateModal ? 'Active' : 'Inactive'} | 
-                      Title: "{jobForm?.title || 'empty'}" | 
-                      Editing: {editingJob ? 'Yes' : 'No'}<br/>
-                      Skills: "{jobForm?.skills || 'empty'}" | 
-                      Job Type: "{jobForm?.jobDetails?.type || 'empty'}"
-                    </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* Job Title */}
                       <div className="md:col-span-2">

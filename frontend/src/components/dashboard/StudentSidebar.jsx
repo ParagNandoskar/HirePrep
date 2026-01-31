@@ -48,12 +48,6 @@ const StudentSidebar = () => {
       current: location.pathname === '/student-dashboard/applications'
     },
     {
-      name: 'Mock Interview',
-      href: '/student-dashboard/interview/start',
-      icon: HiVideoCamera,
-      current: location.pathname.includes('/student-dashboard/interview')
-    },
-    {
       name: 'Leaderboard',
       href: '/student-dashboard/leaderboard',
       icon: HiStar,
@@ -70,12 +64,6 @@ const StudentSidebar = () => {
       href: '/student-dashboard/results',
       icon: HiChartBar,
       current: location.pathname === '/student-dashboard/results'
-    },
-    {
-      name: 'Recommendations',
-      href: '/student-dashboard/recommendations',
-      icon: HiLightBulb,
-      current: location.pathname === '/student-dashboard/recommendations'
     }
   ]
 

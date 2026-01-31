@@ -254,9 +254,12 @@ const JobLeaderboard = () => {
               <div>
                 <h3 className="font-semibold text-purple-900 mb-2">How Rankings Work</h3>
                 <p className="text-sm text-purple-800">
-                  Candidates are ranked based on their AI screening interview performance for this specific job. 
-                  The employer reviews this leaderboard to identify top performers for the next round. 
-                  Higher scores increase your chances of being selected!
+                  All candidates are ranked based on their AI screening interview performance. 
+                  {isEmployer ? (
+                    <strong> The top 10 candidates are recommended to you for further evaluation.</strong>
+                  ) : (
+                    <> The employer reviews the top 10 candidates for the next round. Higher scores increase your chances of being selected!</>
+                  )}
                 </p>
               </div>
             </div>
@@ -291,17 +294,17 @@ const JobLeaderboard = () => {
                     className={`${
                       candidate.isCurrentUser 
                         ? 'bg-blue-50 border-l-4 border-blue-500' 
-                        : candidate.rank <= 3 
-                          ? 'bg-gradient-to-r from-yellow-50 to-white' 
+                        : candidate.rank <= 10 
+                          ? 'bg-gradient-to-r from-green-50 to-white border-l-4 border-green-400' 
                           : 'hover:bg-gray-50'
                     } transition-colors`}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {getRankBadge(candidate.rank)}
-                        {candidate.rank <= 3 && (
-                          <span className="ml-3 px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full border border-yellow-300">
-                            TOP {candidate.rank}
+                        {candidate.rank <= 10 && (
+                          <span className="ml-3 px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full border border-green-400">
+                            {candidate.rank <= 3 ? '⭐ ' : ''}RECOMMENDED
                           </span>
                         )}
                       </div>
@@ -317,6 +320,11 @@ const JobLeaderboard = () => {
                               </span>
                             )}
                           </div>
+                          {isEmployer && candidate.rank <= 10 && candidate.candidateEmail && (
+                            <div className="text-xs text-gray-600 mt-1">
+                              📧 {candidate.candidateEmail}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -346,16 +354,21 @@ const JobLeaderboard = () => {
             <div className="flex items-start">
               <HiBadgeCheck className="w-6 h-6 text-green-600 mt-1 mr-3 flex-shrink-0" />
               <div>
-                <h3 className="font-semibold text-green-900 mb-2">Priority Selection Process</h3>
+                <h3 className="font-semibold text-green-900 mb-2">
+                  {isEmployer ? 'Top 10 Recommended Candidates' : 'Selection Process'}
+                </h3>
                 <p className="text-sm text-green-800 mb-3">
-                  The employer reviews this leaderboard to select candidates for the next round. 
-                  Top performers are automatically prioritized:
+                  {isEmployer ? (
+                    <>The top 10 candidates with green highlighting are recommended for your review. These candidates have demonstrated strong performance in the AI screening interview and are ready for the next stage of your hiring process.</>
+                  ) : (
+                    <>Only the top 10 candidates are shared with the employer. Top performers are prioritized for the next round of interviews.</>
+                  )}
                 </p>
                 <ul className="text-sm text-green-800 space-y-1">
-                  <li>🥇 Top 3 candidates receive priority consideration</li>
-                  <li>⭐ Scores above 85 are highlighted to the employer</li>
+                  <li>🥇 Top 10 candidates are recommended to the company</li>
+                  <li>⭐ Scores above 85 receive priority consideration</li>
                   <li>📊 Rankings update in real-time as more candidates interview</li>
-                  <li>🔔 You'll be notified if selected for the next round</li>
+                  {!isEmployer && <li>🔔 You'll be notified if selected for the next round</li>}
                 </ul>
               </div>
             </div>

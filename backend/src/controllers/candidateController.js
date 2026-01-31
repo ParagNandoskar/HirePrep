@@ -158,6 +158,13 @@ const getApplications = asyncHandler(async (req, res) => {
     status: app.status,
     appliedAt: app.appliedAt,
     matchScore: app.matchScore?.overall,
+    interviewScore: app.interviewScore,
+    screeningScore: app.screeningScore,
+    interviewCompleted: app.interviewCompleted,
+    interviewStatus: app.interviewStatus,
+    interviewCompletedAt: app.interviewCompletedAt,
+    questionsAnswered: app.questionsAnswered,
+    aiAnalysis: app.aiAnalysis,
     job: {
       _id: app.jobId?._id,
       title: app.jobId?.title,
@@ -171,6 +178,7 @@ const getApplications = asyncHandler(async (req, res) => {
       jobDetails: app.jobId?.jobDetails,
       status: app.jobId?.status
     },
+    jobId: app.jobId,
     coverLetter: app.coverLetter,
     timeline: app.timeline,
     interviews: app.interviews,
@@ -225,6 +233,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalApplications,
     interviewsScheduled,
     offersReceived,
+    resumeCount,
     candidate
   ] = await Promise.all([
     Application.countDocuments({ candidateId: userId }),
@@ -236,14 +245,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       candidateId: userId, 
       status: { $in: ['offer-extended', 'offer-accepted', 'hired'] } 
     }),
-    Candidate.findOne({ userId }).populate('resume')
+    Resume.countDocuments({ userId }),
+    Candidate.findOne({ userId })
   ]);
 
   const stats = {
     totalApplications,
     interviewsScheduled,
     offersReceived,
-    resumesUploaded: candidate?.resume ? 1 : 0,
+    resumesUploaded: resumeCount,
     profileCompleteness: candidate?.profileCompleteness || 0
   };
 

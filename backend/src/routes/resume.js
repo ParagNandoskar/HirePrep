@@ -44,7 +44,7 @@ router.post('/reprocess/:candidateId', reprocessResume); // Frontend expects: PO
 router.delete('/:id', authorize('student'), deleteResume); // Frontend expects: DELETE /api/resumes/{id}
 
 // Existing routes (maintaining backward compatibility)
-router.get('/:userId', getResume); // Accessible by student (own) or company
+router.get('/:userId', authenticate, getResume); // Accessible by student (own) or company
 router.put('/update-data', authorize('student'), updateResumeData);
 router.delete('/delete', authorize('student'), deleteResume);
 
@@ -53,6 +53,6 @@ router.get('/analyze/job/:jobId', authorize('student'), analyzeResumeForJob);
 router.get('/analytics/my-resume', authorize('student'), getResumeAnalytics);
 
 // Secure file access route
-router.get('/:userId/signed-url', getResumeSignedUrl); // Accessible by student (own) or company
+router.get('/:userId/signed-url', authenticate, getResumeSignedUrl); // Accessible by student (own) or company
 
 module.exports = router;

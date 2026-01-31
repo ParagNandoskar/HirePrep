@@ -104,7 +104,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalApplications,
     interviewsScheduled,
     candidatesHired,
-    company
+    company,
+    recentApplicationsData,
+    applicationStatusCounts
   ] = await Promise.all([
     Job.countDocuments({ companyId: userId, status: 'active' }),
     Application.countDocuments({ companyId: userId }),
@@ -116,19 +118,76 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       companyId: userId, 
       status: 'hired' 
     }),
-    Company.findOne({ userId })
+    Company.findOne({ userId }),
+    // Get recent applications with candidate info and job details
+    Application.find({ companyId: userId })
+      .populate('candidateId', 'name email')
+      .populate('jobId', 'title')
+      .sort({ appliedAt: -1 })
+      .limit(10),
+    // Get applications count by status
+    Application.aggregate([
+      { $match: { companyId: userId } },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ])
   ]);
+
+  // Format recent applications
+  const recentApplications = recentApplicationsData.map(app => ({
+    id: app._id,
+    candidateName: app.candidateId?.name || 'Unknown',
+    role: app.jobId?.title || 'Unknown Position',
+    status: formatStatus(app.status),
+    score: app.matchScore?.overall ? `${Math.round(app.matchScore.overall)}%` : 'N/A'
+  }));
+
+  // Format applications by status for pie chart
+  const statusColorMap = {
+    'applied': { name: 'Applied', color: '#3b82f6' },
+    'under-review': { name: 'Reviewing', color: '#60a5fa' },
+    'screening': { name: 'Screening', color: '#93c5fd' },
+    'shortlisted': { name: 'Shortlisted', color: '#10b981' },
+    'interview-scheduled': { name: 'Interview Scheduled', color: '#f59e0b' },
+    'interviewing': { name: 'Interviewing', color: '#f97316' },
+    'rejected': { name: 'Rejected', color: '#ef4444' },
+    'hired': { name: 'Hired', color: '#8b5cf6' }
+  };
+
+  const applicationsByStatus = applicationStatusCounts
+    .filter(item => item._id && item.count > 0)
+    .map(item => ({
+      name: statusColorMap[item._id]?.name || item._id,
+      value: item.count,
+      color: statusColorMap[item._id]?.color || '#6b7280'
+    }));
 
   const stats = {
     activeJobs,
     totalApplications,
     interviewsScheduled,
     candidatesHired,
-    profileCompleteness: company?.profileCompleteness || 0
+    profileCompleteness: company?.profileCompleteness || 0,
+    recentApplications,
+    applicationsByStatus
   };
 
   return successResponse(res, stats, 'Company dashboard stats retrieved successfully');
 });
+
+// Helper function to format status for display
+const formatStatus = (status) => {
+  const statusMap = {
+    'applied': 'Applied',
+    'under-review': 'Reviewing',
+    'screening': 'Screening',
+    'shortlisted': 'Shortlisted',
+    'interview-scheduled': 'Interview Scheduled',
+    'interviewing': 'Interviewing',
+    'rejected': 'Rejected',
+    'hired': 'Hired'
+  };
+  return statusMap[status] || status;
+};
 
 // Get job applications for a specific job
 const getJobApplications = asyncHandler(async (req, res) => {

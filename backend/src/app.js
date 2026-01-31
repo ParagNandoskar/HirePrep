@@ -1,9 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
-const mongoose = require('mongoose'); // Moved mongoose require to the top
+const mongoose = require('mongoose');
 const path = require('path');
 
 // Import routes
@@ -27,29 +24,7 @@ const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
 
-// Security middleware - Configure helmet for development
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "blob:", "*"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https:"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "*"],
-    },
-  },
-}));
-app.use(compression());
-
-// Rate limiting (increased for development)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000 // limit each IP to 1000 requests per windowMs (increased for development)
-});
-app.use(limiter);
-
-// CORS configuration - All console.logs removed for cleaner operation
+// CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, curl)
@@ -108,26 +83,13 @@ const corsOptions = {
 // Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Logging Middleware (Disabled for cleaner console)
-app.use((req, res, next) => {
-    // Explicit OPTIONS handling is usually unnecessary when using the 'cors' package 
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-  
-    next();
-});
-
 // Body parsing middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Static file serving for uploads 
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check endpoint (simple)
-app.get('/health', (req, res) => {
-  res.json({ 
+app.get('/', (req, res) => {
+  res.json({ 
     success: true, 
     message: 'HirePrep Backend API is running!',
     timestamp: new Date().toISOString()
@@ -161,18 +123,20 @@ app.get('/api/health', (req, res) => {
 // Debug endpoint to check user details (temporary)
 app.get('/api/debug/user/:userId', async (req, res) => {
   try {
-    const User = require('./src/models/User');
+    const User = require('./models/User');
     const { userId } = req.params;
     const user = await User.findById(userId).select('email name role');
     res.json({ success: true, user });
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
-});// API Routes
+});
+
+// API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/resume', resumeRoutes); // Legacy route
-app.use('/api/resumes', resumeRoutes); // Frontend expects /api/resumes
-app.use('/api/job', jobRoutes); // Legacy route
+app.use('/api/resume', resumeRoutes);
+app.use('/api/resumes', resumeRoutes);
+app.use('/api/job', jobRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/status', statusRoutes);
@@ -181,19 +145,19 @@ app.use('/api/status', statusRoutes);
 app.use('/api/candidates', candidatesRoutes);
 app.use('/api/companies', companiesRoutes);
 app.use('/api/applications', applicationsRoutes);
-app.use('/api/jobs', jobsRoutes); // Frontend expects /api/jobs
-app.use('/api/upload', uploadRoutes); // Video and file uploads
-app.use('/api/gemini-voice', geminiVoiceRoutes); // Gemini AI voice interview
+app.use('/api/jobs', jobsRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/gemini-voice', geminiVoiceRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'API endpoint not found'
-  });
+  res.status(404).json({
+    success: false,
+    message: 'API endpoint not found'
+  });
 });
 
-// Error handling middleware (should be last)
+// Global error handler
 app.use(errorHandler);
 
 module.exports = app;

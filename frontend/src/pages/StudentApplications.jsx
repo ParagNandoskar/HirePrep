@@ -226,7 +226,7 @@ const StudentApplications = () => {
 
                 {/* Right: Status and Action */}
                 <div className="flex items-center gap-3 ml-4">
-                  {/* Screening Interview Button */}
+                  {/* Screening Interview Button - Only show if not completed */}
                   {(application.status === 'pending' || application.status === 'applied') && !application.interviewCompleted && (
                     <button
                       onClick={() => startScreeningInterview(application)}
@@ -237,10 +237,13 @@ const StudentApplications = () => {
                     </button>
                   )}
                   
+                  {/* Interview Completed Status */}
                   {application.interviewCompleted && (
                     <span className="flex items-center space-x-2 px-4 py-2 bg-green-50 text-green-700 font-medium rounded-lg border border-green-200">
-                      <HiVideoCamera className="w-5 h-5" />
-                      <span>Interview Completed</span>
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                      <span>Interviewed</span>
                     </span>
                   )}
                   

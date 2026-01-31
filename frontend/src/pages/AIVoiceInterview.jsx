@@ -45,6 +45,7 @@ const AIVoiceInterview = () => {
   const audioChunksRef = useRef([])
   const canvasRef = useRef(null)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
+  const [isSpeechMuted, setIsSpeechMuted] = useState(false)
 
   // Debug: Log video element state
   useEffect(() => {
@@ -67,11 +68,6 @@ const AIVoiceInterview = () => {
     // Redirect if missing required data
     if (isJobApplication && (!jobId || !applicationId)) {
       navigate('/student-dashboard/applications')
-      return
-    }
-
-    if (!isJobApplication && (!type || !role)) {
-      navigate('/student-dashboard/interview/start')
       return
     }
 
@@ -254,6 +250,12 @@ const AIVoiceInterview = () => {
         window.speechSynthesis.cancel();
       }
       
+      // Skip speaking if muted
+      if (isSpeechMuted) {
+        console.log('🔇 Speech is muted, skipping audio playback');
+        return;
+      }
+      
       setIsAISpeaking(true)
       
       // Play audio using browser TTS
@@ -267,6 +269,15 @@ const AIVoiceInterview = () => {
     }
   }
 
+  const toggleSpeechMute = () => {
+    setIsSpeechMuted(!isSpeechMuted)
+    // Cancel any ongoing speech when muting
+    if (!isSpeechMuted && window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsAISpeaking(false);
+    }
+  }
+
   const replayQuestion = async () => {
     if (currentQuestion && !isAISpeaking) {
       await speakQuestion(currentQuestion)
@@ -277,6 +288,12 @@ const AIVoiceInterview = () => {
     if (!speechRecognition.isSupported()) {
       setError('Speech recognition is not supported in your browser. Please use Chrome or Edge.')
       return
+    }
+
+    // Prevent starting if already listening
+    if (speechRecognition.isActive()) {
+      console.warn('Speech recognition already active, ignoring start request');
+      return;
     }
 
     setCurrentTranscript('')
@@ -306,7 +323,8 @@ const AIVoiceInterview = () => {
           setError('No speech detected. Please try again.')
         } else if (error === 'not-allowed') {
           setError('Microphone permission denied. Please allow microphone access.')
-        } else {
+        } else if (error !== 'aborted') {
+          // Don't show error for aborted (user stopped intentionally)
           setError('Speech recognition error. Please try again.')
         }
       }
@@ -460,27 +478,6 @@ const AIVoiceInterview = () => {
     }
   }
 
-  const skipQuestion = async () => {
-    try {
-      // Submit empty answer
-      await geminiVoiceService.submitAnswer(sessionId, '[No answer provided - skipped]')
-
-      // Clear transcript
-      setCurrentTranscript('')
-      setInterimTranscript('')
-
-      // Check if interview should continue
-      if (questionNumber < 5) {
-        await getNextQuestion()
-      } else {
-        await finishInterview()
-      }
-    } catch (error) {
-      console.error('Error skipping question:', error)
-      setError('Failed to skip question. Please try again.')
-    }
-  }
-
   const finishInterview = async () => {
     try {
       setInterviewComplete(true)
@@ -507,6 +504,7 @@ const AIVoiceInterview = () => {
           insights: analysis.insights,
           recommendation: analysis.recommendation,
           totalQuestions: 5,
+          questionsAnswered: questionNumber, // Track actual questions answered
           behavioralScore: analysis.behavioralScore,
           contentScore: analysis.contentScore,
           videoScore: analysis.videoScore,
@@ -652,15 +650,41 @@ style={{ minHeight: '300px' }}>
                     </div>
                   )}
 
-                  {/* Replay Button */}
-                  <button
-                    onClick={replayQuestion}
-                    disabled={isAISpeaking}
-                    className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                  >
-                    <HiVolumeUp className="w-5 h-5" />
-                    <span className="text-sm font-medium">Replay Question</span>
-                  </button>
+                  {/* Replay and Mute Buttons */}
+                  <div className="flex items-center space-x-4">
+                    <button
+                      onClick={replayQuestion}
+                      disabled={isAISpeaking || isSpeechMuted}
+                      className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                    >
+                      <HiVolumeUp className="w-5 h-5" />
+                      <span className="text-sm font-medium">Replay Question</span>
+                    </button>
+                    
+                    <button
+                      onClick={toggleSpeechMute}
+                      className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                        isSpeechMuted 
+                          ? 'bg-red-100 text-red-600 hover:bg-red-200' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title={isSpeechMuted ? 'Unmute question audio' : 'Mute question audio'}
+                    >
+                      {isSpeechMuted ? (
+                        <>
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-sm font-medium">Unmute</span>
+                        </>
+                      ) : (
+                        <>
+                          <HiVolumeUp className="w-5 h-5" />
+                          <span className="text-sm font-medium">Mute</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -716,15 +740,7 @@ style={{ minHeight: '300px' }}>
           )}
 
           {/* Action Buttons */}
-          <div className="mt-6 flex items-center justify-between">
-            <button
-              onClick={skipQuestion}
-              disabled={isAISpeaking || isListening}
-              className="text-gray-600 hover:text-gray-800 disabled:opacity-50"
-            >
-              Skip Question
-            </button>
-
+          <div className="mt-6 flex items-center justify-end">
             <button
               onClick={submitAnswer}
               disabled={!currentTranscript || isListening || isAISpeaking}

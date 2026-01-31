@@ -6,7 +6,8 @@ const {
   updateCandidateStatus,
   getLeaderboardStats,
   getTopPerformers,
-  compareCandidates
+  compareCandidates,
+  getGlobalLeaderboard
 } = require('../controllers/leaderboardController');
 const { authenticate, authorize } = require('../middlewares/authMiddleware');
 
@@ -14,6 +15,9 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Global leaderboard (for students)
+router.get('/students', getGlobalLeaderboard);
 
 // Leaderboard viewing routes
 router.get('/:jobId', getLeaderboard); // Accessible by company or students (for their own position)

@@ -5,7 +5,7 @@ const { asyncHandler } = require('../middlewares/errorHandler');
 // Get leaderboard for a specific job
 const getLeaderboard = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
-  const { page = 1, limit = 50 } = req.query;
+  const { page = 1, limit = 100 } = req.query; // Show all candidates by default
 
   try {
     const leaderboard = await leaderboardService.getLeaderboardWithDetails(
@@ -240,6 +240,124 @@ const getTopPerformers = asyncHandler(async (req, res) => {
   }
 });
 
+// Get global student leaderboard based on interview performance
+const getGlobalLeaderboard = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 50, category = 'overall', timeframe = 'all-time' } = req.query;
+
+  try {
+    const Application = require('../models/Application');
+    const User = require('../models/User');
+
+    // Build time filter
+    let dateFilter = {};
+    if (timeframe === 'this-week') {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      dateFilter = { interviewCompletedAt: { $gte: weekAgo } };
+    } else if (timeframe === 'this-month') {
+      const monthAgo = new Date();
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      dateFilter = { interviewCompletedAt: { $gte: monthAgo } };
+    }
+
+    // Get all completed interviews with scores
+    const applications = await Application.find({
+      interviewCompleted: true,
+      screeningScore: { $exists: true, $ne: null },
+      ...dateFilter
+    })
+      .populate('candidateId', 'name email profile')
+      .populate('jobId', 'title')
+      .sort({ screeningScore: -1 })
+      .lean();
+    
+    console.log(`📊 Found ${applications.length} completed interviews with scores`);
+
+    // Group by student and calculate aggregate stats
+    const studentStats = {};
+    
+    applications.forEach(app => {
+      if (!app.candidateId) return;
+      
+      const studentId = app.candidateId._id.toString();
+      if (!studentStats[studentId]) {
+        studentStats[studentId] = {
+          student: app.candidateId,
+          totalScore: 0,
+          interviewsCompleted: 0,
+          scores: [],
+          applicationsSubmitted: 0,
+          offersReceived: 0
+        };
+      }
+      
+      studentStats[studentId].scores.push(app.screeningScore);
+      studentStats[studentId].interviewsCompleted++;
+      studentStats[studentId].totalScore += app.screeningScore;
+      studentStats[studentId].applicationsSubmitted++;
+      
+      // Count offers (shortlisted or hired)
+      if (app.status === 'shortlisted' || app.status === 'hired') {
+        studentStats[studentId].offersReceived++;
+      }
+    });
+    
+    console.log(`👥 Grouped into ${Object.keys(studentStats).length} unique students`);
+
+    // Calculate averages and create leaderboard
+    const leaderboard = Object.values(studentStats)
+      .map(stats => ({
+        student: stats.student,
+        score: Math.round(stats.totalScore / stats.interviewsCompleted),
+        avgInterviewScore: Math.round(stats.totalScore / stats.interviewsCompleted),
+        interviewsCompleted: stats.interviewsCompleted,
+        applicationsSubmitted: stats.applicationsSubmitted,
+        offersReceived: stats.offersReceived,
+        badge: stats.avgInterviewScore >= 85 ? 'Gold' : stats.avgInterviewScore >= 75 ? 'Silver' : 'Bronze',
+        streak: Math.min(stats.interviewsCompleted, 30) // Mock streak based on interviews
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map((entry, index) => ({
+        ...entry,
+        rank: index + 1
+      }));
+
+    // Get user's position if logged in
+    let userPosition = null;
+    if (req.user && req.user.role === 'student') {
+      const userIndex = leaderboard.findIndex(
+        entry => entry.student._id.toString() === req.user.id
+      );
+      if (userIndex !== -1) {
+        userPosition = {
+          rank: userIndex + 1,
+          score: leaderboard[userIndex].score,
+          trend: 'up',
+          change: 0
+        };
+      }
+    }
+
+    // Paginate results
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedLeaderboard = leaderboard.slice(startIndex, endIndex);
+
+    return successResponse(res, {
+      leaderboard: paginatedLeaderboard,
+      userPosition,
+      totalStudents: leaderboard.length,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(leaderboard.length / limit)
+    }, 'Global leaderboard retrieved successfully');
+
+  } catch (error) {
+    console.error('Global leaderboard error:', error);
+    return errorResponse(res, 'Failed to retrieve global leaderboard: ' + error.message, 500);
+  }
+});
+
 // Get candidate comparison (for companies to compare multiple candidates)
 const compareCandidates = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
@@ -319,5 +437,6 @@ module.exports = {
   updateCandidateStatus,
   getLeaderboardStats,
   getTopPerformers,
-  compareCandidates
+  compareCandidates,
+  getGlobalLeaderboard
 };

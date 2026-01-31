@@ -4,9 +4,33 @@ const socketIo = require('socket.io');
 require('dotenv').config();
 
 const connectDB = require('./src/config/database');
+const { loadSecrets } = require('./src/config/secrets');
 const app = require('./src/app');
 
-const server = http.createServer(app);
+// Start server with secrets loading
+async function startServer() {
+  try {
+    // Load secrets from AWS Secrets Manager in production
+    if (process.env.NODE_ENV === 'production' && process.env.USE_AWS_SECRETS === 'true') {
+      console.log('🔐 Loading secrets from AWS Secrets Manager...');
+      const secrets = await loadSecrets();
+      
+      if (secrets) {
+        // Override environment variables with secrets
+        process.env.JWT_SECRET = secrets.JWT_SECRET;
+        process.env.JWT_REFRESH_SECRET = secrets.JWT_REFRESH_SECRET;
+        process.env.MONGODB_URI = secrets.MONGODB_URI;
+        process.env.GEMINI_API_KEY = secrets.GEMINI_API_KEY;
+        process.env.AWS_ACCESS_KEY_ID = secrets.AWS_ACCESS_KEY_ID;
+        process.env.AWS_SECRET_ACCESS_KEY = secrets.AWS_SECRET_ACCESS_KEY;
+        process.env.REDIS_PASSWORD = secrets.REDIS_PASSWORD;
+      }
+    }
+
+    // Connect to database
+    await connectDB();
+    
+    const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: function (origin, callback) {
@@ -38,11 +62,6 @@ const io = socketIo(server, {
     credentials: true
   }
 });
-
-const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB
-connectDB();
 
 // Socket.IO connection handling for real-time interview
 io.on('connection', (socket) => {
@@ -85,7 +104,18 @@ io.on('connection', (socket) => {
 // Make io accessible to routes
 app.set('io', io);
 
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔐 Security: ${process.env.USE_AWS_SECRETS === 'true' ? 'AWS Secrets Manager' : 'Environment Variables'}`);
 });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();

@@ -41,24 +41,6 @@ const EmployerSidebar = () => {
       current: location.pathname === '/employer-dashboard/applications'
     },
     {
-      name: 'Interview Scheduling',
-      href: '/employer-dashboard/interview-scheduling',
-      icon: HiCalendar,
-      current: location.pathname === '/employer-dashboard/interview-scheduling'
-    },
-    {
-      name: 'Candidate Analytics',
-      href: '/employer-dashboard/analytics',
-      icon: HiChartBar,
-      current: location.pathname === '/employer-dashboard/analytics'
-    },
-    {
-      name: 'Leaderboard Management',
-      href: '/employer-dashboard/leaderboard',
-      icon: HiStar,
-      current: location.pathname === '/employer-dashboard/leaderboard'
-    },
-    {
       name: 'Company Profile',
       href: '/employer-dashboard/company',
       icon: HiOfficeBuilding,

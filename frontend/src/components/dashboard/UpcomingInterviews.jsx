@@ -10,29 +10,13 @@ const UpcomingInterviews = () => {
   useEffect(() => {
     const fetchInterviews = async () => {
       try {
-        // For now, using sample data matching Figma design
-        // In production, call: const response = await interviewAPI.getUpcomingInterviews()
-        const sampleInterviews = [
-          {
-            id: 1,
-            date: 'Sep 22, 2025',
-            time: '10:00 AM',
-            company: 'Amazon',
-            type: 'Live Interview',
-            status: 'Scheduled'
-          },
-          {
-            id: 2,
-            date: 'Sep 25, 2025',
-            time: '02:30 PM',
-            company: 'Infosys',
-            type: 'MCQ Test',
-            status: 'Pending Docs'
-          }
-        ]
-        setInterviews(sampleInterviews)
+        // TODO: Replace with real API endpoint when available
+        // const response = await interviewAPI.getUpcomingInterviews()
+        // For now, no interviews (remove fake data)
+        setInterviews([])
       } catch (error) {
         console.error('Error fetching interviews:', error)
+        setInterviews([])
       } finally {
         setIsLoading(false)
       }

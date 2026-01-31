@@ -1,531 +1,336 @@
 import React, { useState, useEffect } from 'react'
-import { HiStar, HiFire, HiTrendingUp, HiFilter, HiSearch } from 'react-icons/hi'
+import { HiStar, HiFire, HiTrendingUp, HiChevronRight, HiArrowLeft } from 'react-icons/hi'
+import { FaTrophy } from 'react-icons/fa'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
 import { useAuth } from '../context/AuthContext'
 import { leaderboardService } from '../services/leaderboardService'
+import { apiService } from '../services/api'
 
 const Leaderboard = () => {
   const { user } = useAuth()
-  const [leaderboardData, setLeaderboardData] = useState([])
-  const [selectedCategory, setSelectedCategory] = useState('overall')
-  const [selectedTimeframe, setSelectedTimeframe] = useState('all-time')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [userRank, setUserRank] = useState(null)
+  const [myInterviews, setMyInterviews] = useState([])
+  const [selectedInterview, setSelectedInterview] = useState(null)
+  const [jobLeaderboard, setJobLeaderboard] = useState([])
+  const [myRankInJob, setMyRankInJob] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
-
-  const categories = [
-    { id: 'overall', name: 'Overall Score', icon: HiStar },
-    { id: 'interviews', name: 'Interview Performance', icon: HiStar },
-    { id: 'applications', name: 'Application Success', icon: HiFire },
-    { id: 'skills', name: 'Skills Assessment', icon: HiTrendingUp }
-  ]
-
-  const timeframes = [
-    { id: 'all-time', name: 'All Time' },
-    { id: 'this-month', name: 'This Month' },
-    { id: 'this-week', name: 'This Week' }
-  ]
-
-  // Sample leaderboard data
-  const sampleData = [
-    {
-      rank: 1,
-      name: 'Priya Sharma',
-      university: 'IIT Delhi',
-      score: 2850,
-      interviewsCompleted: 45,
-      avgInterviewScore: 92,
-      applicationsSubmitted: 28,
-      offersReceived: 12,
-      badge: 'Gold',
-      avatar: null,
-      streak: 15
-    },
-    {
-      rank: 2,
-      name: 'Rahul Kumar',
-      university: 'NIT Trichy',
-      score: 2720,
-      interviewsCompleted: 42,
-      avgInterviewScore: 88,
-      applicationsSubmitted: 25,
-      offersReceived: 10,
-      badge: 'Gold',
-      avatar: null,
-      streak: 12
-    },
-    {
-      rank: 3,
-      name: 'Ananya Patel',
-      university: 'BITS Pilani',
-      score: 2680,
-      interviewsCompleted: 40,
-      avgInterviewScore: 90,
-      applicationsSubmitted: 22,
-      offersReceived: 11,
-      badge: 'Gold',
-      avatar: null,
-      streak: 10
-    },
-    {
-      rank: 4,
-      name: 'Arjun Reddy',
-      university: 'IIT Bombay',
-      score: 2550,
-      interviewsCompleted: 38,
-      avgInterviewScore: 87,
-      applicationsSubmitted: 24,
-      offersReceived: 9,
-      badge: 'Silver',
-      avatar: null,
-      streak: 8
-    },
-    {
-      rank: 5,
-      name: 'Sneha Gupta',
-      university: 'Delhi University',
-      score: 2480,
-      interviewsCompleted: 35,
-      avgInterviewScore: 85,
-      applicationsSubmitted: 20,
-      offersReceived: 8,
-      badge: 'Silver',
-      avatar: null,
-      streak: 7
-    },
-    {
-      rank: 6,
-      name: 'Vikram Singh',
-      university: 'IIT Madras',
-      score: 2420,
-      interviewsCompleted: 36,
-      avgInterviewScore: 84,
-      applicationsSubmitted: 21,
-      offersReceived: 7,
-      badge: 'Silver',
-      avatar: null,
-      streak: 6
-    },
-    {
-      rank: 7,
-      name: 'Kavya Nair',
-      university: 'VIT Vellore',
-      score: 2350,
-      interviewsCompleted: 32,
-      avgInterviewScore: 86,
-      applicationsSubmitted: 19,
-      offersReceived: 8,
-      badge: 'Bronze',
-      avatar: null,
-      streak: 5
-    },
-    {
-      rank: 8,
-      name: 'Aditya Verma',
-      university: 'NIT Surathkal',
-      score: 2280,
-      interviewsCompleted: 30,
-      avgInterviewScore: 83,
-      applicationsSubmitted: 18,
-      offersReceived: 6,
-      badge: 'Bronze',
-      avatar: null,
-      streak: 4
-    },
-    {
-      rank: 9,
-      name: 'Isha Mehta',
-      university: 'Manipal University',
-      score: 2210,
-      interviewsCompleted: 28,
-      avgInterviewScore: 82,
-      applicationsSubmitted: 17,
-      offersReceived: 6,
-      badge: 'Bronze',
-      avatar: null,
-      streak: 3
-    },
-    {
-      rank: 10,
-      name: 'Karan Joshi',
-      university: 'SRM University',
-      score: 2150,
-      interviewsCompleted: 27,
-      avgInterviewScore: 81,
-      applicationsSubmitted: 16,
-      offersReceived: 5,
-      badge: 'Bronze',
-      avatar: null,
-      streak: 2
-    }
-  ]
+  const [viewMode, setViewMode] = useState('list')
 
   useEffect(() => {
-    const fetchLeaderboard = async () => {
+    const fetchMyInterviews = async () => {
       try {
-        const response = await leaderboardService.getGlobalLeaderboard({
-          page: 1,
-          limit: 50,
-          category: selectedCategory,
-          timeframe: selectedTimeframe
-        })
-
-        if (response.success && response.data && response.data.leaderboard) {
-          // Map backend data to frontend format
-          const mappedData = response.data.leaderboard.map((entry, index) => ({
-            rank: entry.rank || index + 1,
-            name: entry.student?.name || entry.name || 'Unknown',
-            university: entry.student?.profile?.university || 'Unknown University',
-            score: entry.score || entry.totalScore || 0,
-            interviewsCompleted: entry.interviewsCompleted || 0,
-            avgInterviewScore: entry.avgInterviewScore || 0,
-            applicationsSubmitted: entry.applicationsSubmitted || 0,
-            offersReceived: entry.offersReceived || 0,
-            badge: entry.badge || (index < 3 ? ['Gold', 'Silver', 'Bronze'][index] : 'Bronze'),
-            avatar: entry.student?.avatar || null,
-            streak: entry.streak || 0
-          }))
-
-          setLeaderboardData(mappedData.length > 0 ? mappedData : sampleData)
-
-          // Get user's rank if available
-          if (response.data.userPosition) {
-            setUserRank({
-              rank: response.data.userPosition.rank,
-              name: user?.name || 'You',
-              score: response.data.userPosition.score,
-              trend: response.data.userPosition.trend || 'up',
-              change: response.data.userPosition.change || 0
-            })
-          }
+        setIsLoading(true)
+        console.log('🔍 Fetching my completed interviews...')
+        const response = await apiService.get('/applications')
+        
+        console.log('📊 Applications response:', response)
+        
+        if (response.success && response.data && response.data.applications) {
+          const completedInterviews = response.data.applications.filter(
+            app => app.interviewCompleted === true
+          )
+          
+          console.log(`✅ Found ${completedInterviews.length} completed interviews out of ${response.data.applications.length} total applications`)
+          console.log('📋 Interview details:', completedInterviews.map(i => ({
+            job: i.jobId?.title,
+            score: i.screeningScore,
+            hasScore: !!i.screeningScore
+          })))
+          setMyInterviews(completedInterviews)
         } else {
-          // Use sample data if no backend data
-          setLeaderboardData(sampleData)
+          console.log('⚠️ No applications data in response')
+          setMyInterviews([])
         }
       } catch (error) {
-        console.error('Error fetching leaderboard:', error)
-        // Fallback to sample data
-        setLeaderboardData(sampleData)
+        console.error('❌ Error fetching interviews:', error)
+        setMyInterviews([])
       } finally {
         setIsLoading(false)
       }
     }
+    if (user) fetchMyInterviews()
+  }, [user])
 
-    if (user) {
+  const viewJobLeaderboard = async (interview) => {
+    try {
       setIsLoading(true)
-      fetchLeaderboard()
-    } else {
-      setLeaderboardData(sampleData)
+      setSelectedInterview(interview)
+      console.log(`🏆 Fetching leaderboard for job: ${interview.jobId?.title}`)
+      const response = await leaderboardService.getJobLeaderboard(interview.jobId?._id || interview.jobId)
+      if (response.success && response.data) {
+        console.log('📊 Leaderboard data:', response.data)
+        setJobLeaderboard(response.data.candidates || [])
+        const myRank = response.data.candidates?.findIndex(
+          c => c.studentId._id === user.id || c.studentId === user.id
+        )
+        if (myRank !== -1) {
+          setMyRankInJob({
+            rank: myRank + 1,
+            totalCandidates: response.data.candidates?.length || 0,
+            score: interview.screeningScore
+          })
+        }
+      }
+      setViewMode('leaderboard')
+    } catch (error) {
+      console.error('❌ Error fetching job leaderboard:', error)
+      // Still show the leaderboard view, but with empty data and helpful message
+      setJobLeaderboard([])
+      setMyRankInJob(null)
+      setViewMode('leaderboard')
+    } finally {
       setIsLoading(false)
     }
-
-    // Set default user rank if not fetched
-    if (!userRank && user) {
-      setUserRank({
-        rank: 15,
-        name: user.name || 'You',
-        score: 1980,
-        trend: 'up',
-        change: 3
-      })
-    }
-  }, [selectedCategory, selectedTimeframe, user])
-
-  const getRankColor = (rank) => {
-    if (rank === 1) return 'text-yellow-600'
-    if (rank === 2) return 'text-gray-400'
-    if (rank === 3) return 'text-orange-600'
-    return 'text-gray-600'
   }
 
-  const getRankBg = (rank) => {
-    if (rank === 1) return 'bg-gradient-to-br from-yellow-400 to-yellow-600'
-    if (rank === 2) return 'bg-gradient-to-br from-gray-300 to-gray-500'
-    if (rank === 3) return 'bg-gradient-to-br from-orange-400 to-orange-600'
-    return 'bg-gray-200'
+  const goBackToList = () => {
+    setViewMode('list')
+    setSelectedInterview(null)
+    setJobLeaderboard([])
+    setMyRankInJob(null)
   }
 
-  const getBadgeColor = (badge) => {
-    const colors = {
-      Gold: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      Silver: 'bg-gray-100 text-gray-800 border-gray-300',
-      Bronze: 'bg-orange-100 text-orange-800 border-orange-300'
-    }
-    return colors[badge] || 'bg-gray-100 text-gray-800'
+  const formatDate = (date) => {
+    if (!date) return 'N/A'
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
   }
 
-  const filteredData = leaderboardData.filter(entry =>
-    entry.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    entry.university.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const getScoreColor = (score) => {
+    if (score >= 85) return 'text-green-600 bg-green-50 border-green-200'
+    if (score >= 70) return 'text-blue-600 bg-blue-50 border-blue-200'
+    if (score >= 60) return 'text-yellow-600 bg-yellow-50 border-yellow-200'
+    return 'text-red-600 bg-red-50 border-red-200'
+  }
+
+  const getRankBadgeColor = (rank) => {
+    if (rank === 1) return 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white'
+    if (rank === 2) return 'bg-gradient-to-br from-gray-300 to-gray-500 text-white'
+    if (rank === 3) return 'bg-gradient-to-br from-orange-400 to-orange-600 text-white'
+    return 'bg-gray-200 text-gray-700'
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout sidebarContent={<StudentSidebar />} userType="student">
+        <div className="animate-pulse">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+            <div className="space-y-4">
+              {[...Array(5)].map((_, index) => (
+                <div key={index} className="h-20 bg-gray-100 rounded"></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-    <DashboardLayout 
-      sidebarContent={<StudentSidebar />} 
-      userType="student"
-    >
+    <DashboardLayout sidebarContent={<StudentSidebar />} userType="student">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full mb-4">
-            <HiStar className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Leaderboard</h1>
-          <p className="text-gray-600">Compete with top performers and track your progress</p>
-        </div>
-
-        {/* User Rank Card */}
-        {userRank && (
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl shadow-lg p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-6">
-                <div className="text-center">
-                  <div className="text-5xl font-bold mb-1">#{userRank.rank}</div>
-                  <div className="text-blue-200 text-sm">Your Rank</div>
-                </div>
-                <div className="border-l border-blue-400 pl-6">
-                  <div className="text-3xl font-bold mb-1">{userRank.score}</div>
-                  <div className="text-blue-200 text-sm">Total Points</div>
-                </div>
+        <div className="flex items-center justify-between">
+          {viewMode === 'leaderboard' && (
+            <button
+              onClick={goBackToList}
+              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <HiArrowLeft className="w-5 h-5" />
+              <span className="font-medium">Back to My Interviews</span>
+            </button>
+          )}
+          {viewMode === 'list' && (
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center">
+                <FaTrophy className="w-7 h-7 text-white" />
               </div>
-              <div className="text-right">
-                <div className={`inline-flex items-center space-x-2 px-4 py-2 rounded-lg ${
-                  userRank.trend === 'up' ? 'bg-green-500' : 'bg-red-500'
-                } bg-opacity-30`}>
-                  <HiTrendingUp className={`w-5 h-5 ${userRank.trend === 'up' ? '' : 'transform rotate-180'}`} />
-                  <span className="font-semibold">{userRank.change} ranks {userRank.trend === 'up' ? 'up' : 'down'}</span>
-                </div>
-                <p className="text-blue-200 text-sm mt-2">Keep going to climb higher!</p>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Interview Leaderboards</h2>
+                <p className="text-gray-500 text-sm">View rankings for your completed interviews</p>
               </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {viewMode === 'list' && (
+          <>
+            {myInterviews.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+                <div className="text-gray-400 mb-4">
+                  <FaTrophy className="mx-auto h-16 w-16" />
+                </div>
+                <p className="text-gray-600 text-lg font-medium">No Completed Interviews Yet</p>
+                <p className="text-gray-400 text-sm mt-2">
+                  Complete screening interviews to see leaderboards
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">My Completed Interviews</h3>
+                  <p className="text-sm text-gray-500">Click on any interview to see rankings</p>
+                </div>
+                <div className="space-y-3">
+                  {myInterviews.map((interview) => (
+                    <button
+                      key={interview._id}
+                      onClick={() => viewJobLeaderboard(interview)}
+                      className="w-full flex items-center justify-between p-4 border-2 border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 group"
+                    >
+                      <div className="flex items-center space-x-4 flex-1 text-left">
+                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
+                          {interview.jobId?.title?.charAt(0) || 'J'}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-base font-semibold text-gray-900">
+                            {interview.jobId?.title || 'Job Title'}
+                          </h4>
+                          <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
+                            <span className="font-medium">
+                              {interview.jobId?.companyId?.companyName || 'Company'}
+                            </span>
+                            <span>•</span>
+                            <span>Completed: {formatDate(interview.interviewCompletedAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        {interview.screeningScore ? (
+                          <div className={`px-4 py-2 rounded-lg border-2 font-bold ${getScoreColor(interview.screeningScore)}`}>
+                            Score: {interview.screeningScore}%
+                          </div>
+                        ) : (
+                          <div className="px-4 py-2 rounded-lg border-2 bg-yellow-50 border-yellow-300 text-yellow-700 font-semibold">
+                            ⚠️ No Score Available
+                          </div>
+                        )}
+                        <div className="text-blue-600 group-hover:text-blue-700">
+                          <HiChevronRight className="w-6 h-6" />
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Filters */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Category Filter */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Category</label>
-              <div className="grid grid-cols-2 gap-2">
-                {categories.map((category) => {
-                  const Icon = category.icon
-                  return (
-                    <button
-                      key={category.id}
-                      onClick={() => setSelectedCategory(category.id)}
-                      className={`flex items-center justify-center space-x-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        selectedCategory === category.id
-                          ? 'border-blue-600 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span className="hidden xl:inline">{category.name.split(' ')[0]}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Timeframe Filter */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Timeframe</label>
-              <div className="flex space-x-2">
-                {timeframes.map((timeframe) => (
-                  <button
-                    key={timeframe.id}
-                    onClick={() => setSelectedTimeframe(timeframe.id)}
-                    className={`flex-1 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      selectedTimeframe === timeframe.id
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'
-                    }`}
-                  >
-                    {timeframe.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Search */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
-              <div className="relative">
-                <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name or university..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Top 3 Podium */}
-        <div className="grid grid-cols-3 gap-4 max-w-4xl mx-auto">
-          {/* Second Place */}
-          {filteredData[1] && (
-            <div className="pt-12">
-              <div className="bg-white rounded-2xl shadow-sm border-2 border-gray-300 p-6 text-center">
-                <div className="relative inline-block mb-4">
-                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-                    <span className="text-2xl font-bold text-gray-700">
-                      {filteredData[1].name.charAt(0)}
-                    </span>
-                  </div>
-                  <div className="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-br from-gray-300 to-gray-500 rounded-full flex items-center justify-center text-white font-bold shadow-lg">
-                    2
-                  </div>
+        {viewMode === 'leaderboard' && selectedInterview && (
+          <>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">
+                    {selectedInterview.jobId?.title}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedInterview.jobId?.companyId?.companyName} • Completed: {formatDate(selectedInterview.interviewCompletedAt)}
+                  </p>
                 </div>
-                <h3 className="font-bold text-gray-900 mb-1">{filteredData[1].name}</h3>
-                <p className="text-xs text-gray-500 mb-3">{filteredData[1].university}</p>
-                <div className="text-2xl font-bold text-gray-700 mb-1">{filteredData[1].score}</div>
-                <div className="text-xs text-gray-500">points</div>
+                {myRankInJob && (
+                  <div className="text-right">
+                    <div className="text-3xl font-bold text-blue-600">#{myRankInJob.rank}</div>
+                    <div className="text-sm text-gray-500">out of {myRankInJob.totalCandidates} candidates</div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
 
-          {/* First Place */}
-          {filteredData[0] && (
-            <div>
-              <div className="bg-white rounded-2xl shadow-lg border-2 border-yellow-400 p-6 text-center">
-                <div className="relative inline-block mb-4">
-                  <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto">
-                    <span className="text-3xl font-bold text-yellow-700">
-                      {filteredData[0].name.charAt(0)}
-                    </span>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+              {jobLeaderboard.length === 0 ? (
+                <div className="text-center py-16 px-4">
+                  <div className="text-gray-400 mb-4">
+                    <FaTrophy className="mx-auto h-16 w-16" />
                   </div>
-                  <div className="absolute -top-3 -right-3 w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center text-white shadow-lg">
-                    <HiStar className="w-6 h-6" />
-                  </div>
+                  <p className="text-gray-600 text-lg font-medium">Leaderboard Not Available Yet</p>
+                  <p className="text-gray-400 text-sm mt-2">
+                    The company hasn't generated the leaderboard for this position yet.
+                  </p>
+                  {selectedInterview.screeningScore ? (
+                    <>
+                      <p className="text-gray-400 text-sm mt-1">
+                        Your interview has been completed successfully with a score of <span className="font-semibold text-blue-600">{selectedInterview.screeningScore}%</span>
+                      </p>
+                      <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md mx-auto">
+                        <p className="text-sm text-blue-800">
+                          💡 <span className="font-semibold">Note:</span> Rankings will be available once the company reviews all candidates and generates the leaderboard.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200 max-w-md mx-auto">
+                      <p className="text-sm text-yellow-800">
+                        ⚠️ <span className="font-semibold">No Score Available:</span> This interview was not properly analyzed. The interview may have been incomplete or there was an error during processing.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <h3 className="font-bold text-gray-900 mb-1 text-lg">{filteredData[0].name}</h3>
-                <p className="text-xs text-gray-500 mb-3">{filteredData[0].university}</p>
-                <div className="text-3xl font-bold text-yellow-600 mb-1">{filteredData[0].score}</div>
-                <div className="text-xs text-gray-500">points</div>
-                <div className="mt-4 inline-flex items-center space-x-1 px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">
-                  <HiFire className="w-3 h-3" />
-                  <span>{filteredData[0].streak} day streak</span>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Rank</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Candidate</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Score</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Percentile</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {jobLeaderboard.map((candidate, index) => {
+                        const isCurrentUser = candidate.studentId._id === user.id || candidate.studentId === user.id
+                        return (
+                          <tr key={candidate._id || index} className={`hover:bg-gray-50 transition-colors ${isCurrentUser ? 'bg-blue-50' : ''}`}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className={`flex items-center justify-center w-10 h-10 rounded-full ${getRankBadgeColor(candidate.rank || index + 1)} font-bold`}>
+                                {candidate.rank || index + 1}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center space-x-3">
+                                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                                  <span className="text-sm font-semibold text-gray-700">
+                                    {candidate.studentId?.name?.charAt(0) || '?'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className="font-semibold text-gray-900">
+                                    {isCurrentUser ? 'You' : (candidate.studentId?.name || 'Anonymous')}
+                                    {isCurrentUser && (
+                                      <span className="ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">You</span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {candidate.studentId?.profile?.university || 'University'}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-lg font-bold text-gray-900">
+                                {candidate.scores?.overallScore || 0}%
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800">
+                                Top {candidate.percentile || 0}%
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              )}
             </div>
-          )}
-
-          {/* Third Place */}
-          {filteredData[2] && (
-            <div className="pt-12">
-              <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-300 p-6 text-center">
-                <div className="relative inline-block mb-4">
-                  <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mx-auto">
-                    <span className="text-2xl font-bold text-orange-700">
-                      {filteredData[2].name.charAt(0)}
-                    </span>
-                  </div>
-                  <div className="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg">
-                    3
-                  </div>
-                </div>
-                <h3 className="font-bold text-gray-900 mb-1">{filteredData[2].name}</h3>
-                <p className="text-xs text-gray-500 mb-3">{filteredData[2].university}</p>
-                <div className="text-2xl font-bold text-orange-600 mb-1">{filteredData[2].score}</div>
-                <div className="text-xs text-gray-500">points</div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Full Leaderboard Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Student</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Score</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Interviews</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Avg Score</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Badge</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Streak</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredData.map((entry) => (
-                  <tr key={entry.rank} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`flex items-center justify-center w-10 h-10 rounded-full ${getRankBg(entry.rank)} text-white font-bold`}>
-                        {entry.rank}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                          <span className="text-sm font-semibold text-gray-700">
-                            {entry.name.charAt(0)}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">{entry.name}</div>
-                          <div className="text-xs text-gray-500">{entry.university}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-lg font-bold text-gray-900">{entry.score}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-700">{entry.interviewsCompleted}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
-                        {entry.avgInterviewScore}%
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full border ${getBadgeColor(entry.badge)}`}>
-                        {entry.badge}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-1 text-orange-600">
-                        <HiFire className="w-4 h-4" />
-                        <span className="text-sm font-semibold">{entry.streak}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Achievement Badges Section */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">How to Earn Points</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="text-2xl font-bold text-blue-700 mb-1">+50</div>
-              <div className="text-sm text-gray-700">Complete an interview</div>
-            </div>
-            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-              <div className="text-2xl font-bold text-green-700 mb-1">+100</div>
-              <div className="text-sm text-gray-700">Get shortlisted for a job</div>
-            </div>
-            <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <div className="text-2xl font-bold text-purple-700 mb-1">+25</div>
-              <div className="text-sm text-gray-700">Daily login streak</div>
-            </div>
-            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-              <div className="text-2xl font-bold text-yellow-700 mb-1">+200</div>
-              <div className="text-sm text-gray-700">Receive a job offer</div>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </DashboardLayout>
   )

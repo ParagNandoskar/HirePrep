@@ -8,14 +8,14 @@ const NotificationContainer = () => {
   const getIcon = (type) => {
     switch (type) {
       case 'success':
-        return <HiCheckCircle className="h-6 w-6 text-green-500" />
+        return <HiCheckCircle className="h-7 w-7 text-white" />
       case 'error':
-        return <HiXCircle className="h-6 w-6 text-red-500" />
+        return <HiXCircle className="h-7 w-7 text-white" />
       case 'warning':
-        return <HiExclamationCircle className="h-6 w-6 text-yellow-500" />
+        return <HiExclamationCircle className="h-7 w-7 text-white" />
       case 'info':
       default:
-        return <HiInformationCircle className="h-6 w-6 text-blue-500" />
+        return <HiInformationCircle className="h-7 w-7 text-white" />
     }
   }
 
@@ -23,36 +23,32 @@ const NotificationContainer = () => {
     switch (type) {
       case 'success':
         return {
-          bg: 'bg-white',
-          border: 'border-l-4 border-green-500',
-          iconBg: 'bg-green-50',
-          textColor: 'text-gray-900',
-          subTextColor: 'text-gray-600'
+          bg: 'bg-gradient-to-r from-green-500 to-emerald-600',
+          shadow: 'shadow-green-500/30',
+          iconBg: 'bg-white/20 backdrop-blur-sm',
+          ring: 'ring-2 ring-green-400/50'
         }
       case 'error':
         return {
-          bg: 'bg-white',
-          border: 'border-l-4 border-red-500',
-          iconBg: 'bg-red-50',
-          textColor: 'text-gray-900',
-          subTextColor: 'text-gray-600'
+          bg: 'bg-gradient-to-r from-red-500 to-rose-600',
+          shadow: 'shadow-red-500/30',
+          iconBg: 'bg-white/20 backdrop-blur-sm',
+          ring: 'ring-2 ring-red-400/50'
         }
       case 'warning':
         return {
-          bg: 'bg-white',
-          border: 'border-l-4 border-yellow-500',
-          iconBg: 'bg-yellow-50',
-          textColor: 'text-gray-900',
-          subTextColor: 'text-gray-600'
+          bg: 'bg-gradient-to-r from-yellow-500 to-orange-500',
+          shadow: 'shadow-yellow-500/30',
+          iconBg: 'bg-white/20 backdrop-blur-sm',
+          ring: 'ring-2 ring-yellow-400/50'
         }
       case 'info':
       default:
         return {
-          bg: 'bg-white',
-          border: 'border-l-4 border-blue-500',
-          iconBg: 'bg-blue-50',
-          textColor: 'text-gray-900',
-          subTextColor: 'text-gray-600'
+          bg: 'bg-gradient-to-r from-blue-500 to-indigo-600',
+          shadow: 'shadow-blue-500/30',
+          iconBg: 'bg-white/20 backdrop-blur-sm',
+          ring: 'ring-2 ring-blue-400/50'
         }
     }
   }
@@ -60,7 +56,7 @@ const NotificationContainer = () => {
   if (notifications.length === 0) return null
 
   return (
-    <div className="fixed top-4 right-4 left-4 sm:left-auto z-50 space-y-3 max-w-sm sm:max-w-sm w-full sm:w-auto">
+    <div className="fixed top-6 right-6 z-[9999] space-y-4 max-w-md w-full pointer-events-none">
       {notifications.map((notification) => (
         <NotificationItem
           key={notification.id}
@@ -98,58 +94,56 @@ const NotificationItem = ({ notification, getIcon, getStyles, onClose }) => {
     setIsExiting(true)
     setTimeout(() => {
       onClose()
-    }, 300) // Match animation duration
+    }, 400)
   }
 
   return (
     <div
       className={`
-        transform transition-all duration-300 ease-in-out
+        transform transition-all duration-400 ease-out pointer-events-auto
         ${isVisible && !isExiting 
-          ? 'translate-x-0 opacity-100' 
-          : 'translate-x-full opacity-0'
+          ? 'translate-x-0 opacity-100 scale-100' 
+          : 'translate-x-full opacity-0 scale-95'
         }
-        ${styles.bg} ${styles.border}
-        shadow-lg rounded-lg pointer-events-auto
-        max-w-sm w-full overflow-hidden
+        ${styles.bg} ${styles.shadow} ${styles.ring}
+        shadow-2xl rounded-xl overflow-hidden
+        backdrop-blur-sm
       `}
     >
       <div className="p-4">
-        <div className="flex items-start">
-          <div className={`shrink-0 ${styles.iconBg} rounded-full p-2`}>
+        <div className="flex items-start gap-3">
+          {/* Icon */}
+          <div className={`shrink-0 ${styles.iconBg} rounded-lg p-2.5 shadow-lg`}>
             {getIcon(notification.type)}
           </div>
-          <div className="ml-3 w-0 flex-1">
+          
+          {/* Content */}
+          <div className="flex-1 min-w-0 pt-0.5">
             {notification.title && (
-              <p className={`text-sm font-semibold ${styles.textColor} mb-1`}>
+              <p className="text-base font-bold text-white mb-1 leading-tight">
                 {notification.title}
               </p>
             )}
-            <p className={`text-sm ${styles.subTextColor} leading-relaxed`}>
+            <p className="text-sm text-white/95 leading-relaxed font-medium">
               {notification.message}
             </p>
           </div>
-          <div className="ml-4 shrink-0">
-            <button
-              className="inline-flex rounded-md text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors duration-200"
-              onClick={handleClose}
-            >
-              <span className="sr-only">Close</span>
-              <HiX className="h-5 w-5" />
-            </button>
-          </div>
+          
+          {/* Close Button */}
+          <button
+            className="shrink-0 rounded-lg p-1.5 text-white/80 hover:text-white hover:bg-white/20 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+            onClick={handleClose}
+            aria-label="Close notification"
+          >
+            <HiX className="h-5 w-5" />
+          </button>
         </div>
       </div>
       
-      {/* Progress bar */}
-      <div className="h-1 bg-gray-100">
+      {/* Animated Progress Bar */}
+      <div className="h-1.5 bg-black/20 overflow-hidden">
         <div 
-          className={`h-full transition-all ease-linear ${
-            notification.type === 'success' ? 'bg-green-500' :
-            notification.type === 'error' ? 'bg-red-500' :
-            notification.type === 'warning' ? 'bg-yellow-500' :
-            'bg-blue-500'
-          }`}
+          className="h-full bg-white/40 backdrop-blur-sm shadow-lg"
           style={{
             animation: `shrink ${notification.duration || 5000}ms linear forwards`
           }}

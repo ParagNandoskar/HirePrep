@@ -18,6 +18,9 @@ router.route('/:id')
 
 router.get('/stats', applicationController.getApplicationStats);
 
+// Get detailed AI feedback for interview
+router.get('/:applicationId/detailed-feedback', applicationController.getDetailedFeedback);
+
 // Company routes  
 router.get('/company/all', authorize('company'), applicationController.getCompanyApplications);
 router.put('/company/:id/status', authorize('company'), applicationController.updateApplicationStatus);

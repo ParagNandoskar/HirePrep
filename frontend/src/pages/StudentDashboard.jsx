@@ -24,8 +24,8 @@ const StudentDashboard = () => {
         }
       } catch (error) {
         console.error('Error fetching chart data:', error)
-        // Set sample data if API fails
-        setChartData(getSampleChartData())
+        // Set empty data if API fails
+        setChartData([])
       } finally {
         setIsLoadingChart(false)
       }
@@ -35,36 +35,36 @@ const StudentDashboard = () => {
   }, [])
 
   const processApplicationsForChart = (applications) => {
-    const monthCounts = {}
+    if (!applications || applications.length === 0) {
+      return []
+    }
+
+    const dateCounts = {}
     
     applications.forEach(app => {
-      const date = new Date(app.appliedAt)
-      const monthKey = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      const date = new Date(app.appliedAt || app.createdAt)
+      const dateKey = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       
-      if (!monthCounts[monthKey]) {
-        monthCounts[monthKey] = { applied: 0, average: 0 }
+      if (!dateCounts[dateKey]) {
+        dateCounts[dateKey] = 0
       }
-      monthCounts[monthKey].applied += 1
+      dateCounts[dateKey] += 1
     })
 
-    // Convert to array and calculate moving average
-    return Object.keys(monthCounts).map((key, index) => ({
-      name: key,
-      'Your OPA': monthCounts[key].applied,
-      'Average OPA': Math.max(monthCounts[key].applied - 2, 0) // Simulated average slightly lower
-    }))
-  }
+    // Convert to array sorted by date
+    const sortedDates = Object.keys(dateCounts).sort((a, b) => {
+      return new Date(a) - new Date(b)
+    })
 
-  const getSampleChartData = () => {
-    return [
-      { name: '1st November', 'Your OPA': 12, 'Average OPA': 10 },
-      { name: '2nd December', 'Your OPA': 15, 'Average OPA': 13 },
-      { name: '3rd December', 'Your OPA': 14, 'Average OPA': 12 },
-      { name: '4th December', 'Your OPA': 18, 'Average OPA': 15 },
-      { name: '5th December', 'Your OPA': 16, 'Average OPA': 14 },
-      { name: '6th December', 'Your OPA': 20, 'Average OPA': 17 },
-      { name: '7th December', 'Your OPA': 22, 'Average OPA': 19 }
-    ]
+    // Create cumulative data
+    let cumulative = 0
+    return sortedDates.map(dateKey => {
+      cumulative += dateCounts[dateKey]
+      return {
+        name: dateKey,
+        'Applications': cumulative
+      }
+    })
   }
 
   return (
@@ -96,6 +96,13 @@ const StudentDashboard = () => {
             <div className="h-80 bg-gray-50 rounded-lg flex items-center justify-center animate-pulse">
               <p className="text-gray-400">Loading chart...</p>
             </div>
+          ) : chartData.length === 0 ? (
+            <div className="h-80 bg-gray-50 rounded-lg flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-gray-500 mb-2">No application data yet</p>
+                <p className="text-gray-400 text-sm">Start applying to jobs to see your progress</p>
+              </div>
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart
@@ -103,13 +110,9 @@ const StudentDashboard = () => {
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="colorYourOPA" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorAverageOPA" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a5b4fc" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#a5b4fc" stopOpacity={0}/>
+                  <linearGradient id="colorApplications" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -136,20 +139,11 @@ const StudentDashboard = () => {
                 />
                 <Area
                   type="monotone"
-                  dataKey="Your OPA"
-                  stroke="#6366f1"
-                  strokeWidth={2}
+                  dataKey="Applications"
+                  stroke="#3b82f6"
+                  strokeWidth={3}
                   fillOpacity={1}
-                  fill="url(#colorYourOPA)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="Average OPA"
-                  stroke="#a5b4fc"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  fillOpacity={1}
-                  fill="url(#colorAverageOPA)"
+                  fill="url(#colorApplications)"
                 />
               </AreaChart>
             </ResponsiveContainer>

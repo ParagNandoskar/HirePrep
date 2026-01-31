@@ -142,12 +142,30 @@ const getAllJobs = asyncHandler(async (req, res) => {
 
   const total = await Job.countDocuments(filter);
 
+  // Check if user has applied to these jobs
+  let jobsWithApplicationStatus = jobs;
+  if (req.user && req.user.id) {
+    const jobIds = jobs.map(job => job._id);
+    const applications = await Application.find({
+      candidateId: req.user.id,
+      jobId: { $in: jobIds }
+    }).select('jobId');
+    
+    const appliedJobIds = new Set(applications.map(app => app.jobId.toString()));
+    
+    jobsWithApplicationStatus = jobs.map(job => {
+      const jobObj = job.toObject();
+      jobObj.hasApplied = appliedJobIds.has(job._id.toString());
+      return jobObj;
+    });
+  }
+
   console.log("DEBUG: Found", jobs.length, "jobs out of", total, "total");
 
   return successResponse(
     res,
     {
-      jobs,
+      jobs: jobsWithApplicationStatus,
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
@@ -418,6 +436,7 @@ const getCompanyJobs = asyncHandler(async (req, res) => {
       return {
         ...job.toObject(),
         applicationCount,
+        applicationsCount: applicationCount, // Also include plural for frontend compatibility
       };
     })
   );
@@ -544,10 +563,26 @@ const getMatchedJobs = asyncHandler(async (req, res) => {
 
   const total = await Job.countDocuments(filter);
 
+  // Check if user has applied to these jobs
+  const jobIds = jobs.map(job => job._id);
+  const applications = await Application.find({
+    candidateId: candidateId,
+    jobId: { $in: jobIds }
+  }).select('jobId');
+  
+  const appliedJobIds = new Set(applications.map(app => app.jobId.toString()));
+  
+  const jobsWithApplicationStatus = jobs.map(job => {
+    const jobObj = job.toObject();
+    jobObj.hasApplied = appliedJobIds.has(job._id.toString());
+    return jobObj;
+  });
+
   return successResponse(
     res,
     {
-      jobs,
+      jobs: jobsWithApplicationStatus,
+      candidateSkills: candidateSkills,
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
@@ -679,8 +714,23 @@ const getEnhancedMatchedJobs = asyncHandler(async (req, res) => {
 
     return {
       ...job.toObject(),
-      matchScore: Math.round(score)
-    };
+      matchScore: Math.round(score),
+      hasApplied: false // Will be updated below
+    }
+  });
+
+  // Check if user has applied to these jobs
+  const jobIds = jobs.map(job => job._id);
+  const applications = await Application.find({
+    candidateId: candidateId,
+    jobId: { $in: jobIds }
+  }).select('jobId');
+  
+  const appliedJobIds = new Set(applications.map(app => app.jobId.toString()));
+  
+  // Update hasApplied status
+  jobsWithScores.forEach(job => {
+    job.hasApplied = appliedJobIds.has(job._id.toString());
   });
 
   // Sort by match score and paginate
@@ -710,33 +760,93 @@ const getJobApplications = asyncHandler(async (req, res) => {
   const { id: jobId } = req.params;
   const { page = 1, limit = 10, status } = req.query;
   const companyId = req.user.id;
+  const mongoose = require('mongoose');
+
+  console.log('🔍 getJobApplications called with:');
+  console.log('  jobId:', jobId);
+  console.log('  companyId:', companyId);
+  console.log('  status filter:', status);
 
   // Verify job belongs to company
   const job = await Job.findOne({ _id: jobId, companyId });
+  console.log('  Job found:', !!job);
   if (!job) {
+    console.log('  ❌ Job not found or unauthorized');
     return errorResponse(res, "Job not found or unauthorized", 404);
   }
+  console.log('  ✅ Job verified:', job.title);
 
-  // Build filter
-  const filter = { jobId };
-  if (status) {
+  // Build filter - Convert jobId string to ObjectId for proper matching
+  const filter = { jobId: new mongoose.Types.ObjectId(jobId) };
+  if (status && status !== 'undefined' && status !== 'null') {
     filter.status = status;
+  }
+  console.log('  Filter:', JSON.stringify(filter));
+
+  // Check all applications for this job
+  const allApps = await Application.find({ jobId: new mongoose.Types.ObjectId(jobId) });
+  console.log('  Total applications for this job (no filters):', allApps.length);
+  if (allApps.length > 0) {
+    console.log('  Sample application:', {
+      _id: allApps[0]._id,
+      candidateId: allApps[0].candidateId,
+      status: allApps[0].status,
+      interviewScore: allApps[0].interviewScore
+    });
   }
 
   const applications = await Application.find(filter)
-    .populate({
-      path: 'candidateId',
-      select: 'firstName lastName email phone skills experience education'
-    })
-    .populate({
-      path: 'jobId',
-      select: 'title'
-    })
+    .populate('candidateId', 'name email profile')
+    .populate('jobId', 'title')
     .limit(limit * 1)
     .skip((page - 1) * limit)
     .sort({ appliedAt: -1 });
 
+  console.log('  Applications returned after populate:', applications.length);
+
+  // Populate interview conversation data for each application
+  const Interview = require('../models/Interview');
+  for (let app of applications) {
+    if (app.interviewCompleted && app.applicationId) {
+      try {
+        const interview = await Interview.findOne({ applicationId: app._id })
+          .select('conversation')
+          .lean();
+        
+        if (interview && interview.conversation && interview.conversation.length > 0) {
+          // Transform conversation to interviewTranscript format
+          const transcript = [];
+          interview.conversation.forEach((item, index) => {
+            if (item.question) {
+              transcript.push({
+                type: 'question',
+                content: item.question,
+                timestamp: item.timestamp,
+                questionNumber: item.questionId || Math.floor(index / 2) + 1
+              });
+            }
+            if (item.answerTranscript || item.content) {
+              transcript.push({
+                type: 'answer',
+                content: item.answerTranscript || item.content,
+                timestamp: item.timestamp,
+                questionNumber: item.questionId || Math.floor(index / 2) + 1
+              });
+            }
+          });
+          
+          // Update the application object with transcript
+          app.interviewTranscript = transcript;
+          console.log(`  ✅ Populated ${transcript.length} transcript entries for application ${app._id}`);
+        }
+      } catch (error) {
+        console.error(`  ⚠️ Error fetching interview for application ${app._id}:`, error.message);
+      }
+    }
+  }
+
   const total = await Application.countDocuments(filter);
+  console.log('  Total count:', total);
 
   return successResponse(
     res,

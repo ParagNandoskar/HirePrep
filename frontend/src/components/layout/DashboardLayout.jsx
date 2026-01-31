@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { HiMenu, HiX, HiBell, HiSearch, HiChevronDown, HiLogout, HiUser, HiCog } from 'react-icons/hi'
+import { useNavigate } from 'react-router-dom'
+import { HiMenu, HiX, HiSearch, HiChevronDown, HiLogout, HiUser } from 'react-icons/hi'
 import { useAuth } from '../../context/AuthContext'
 
 const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false)
   const { user, logout } = useAuth()
+  const navigate = useNavigate()
   const dropdownRef = useRef(null)
 
   const toggleSidebar = () => {
@@ -19,6 +21,15 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
   const handleLogout = () => {
     logout()
     setIsProfileDropdownOpen(false)
+  }
+
+  const handleViewProfile = () => {
+    setIsProfileDropdownOpen(false)
+    if (userType === 'employer' || user?.role === 'employer') {
+      navigate('/employer-dashboard/profile')
+    } else {
+      navigate('/student-dashboard/profile')
+    }
   }
 
   // Close dropdown when clicking outside
@@ -96,14 +107,8 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
             </div>
           </div>
 
-          {/* Right side - notifications, profile */}
+          {/* Right side - profile */}
           <div className="flex items-center space-x-4">
-            {/* Notifications */}
-            <button className="p-2 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100 transition-colors relative">
-              <HiBell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-            </button>
-
             {/* Profile Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button 
@@ -151,25 +156,11 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
                   </div>
                   
                   <button
-                    onClick={() => {
-                      setIsProfileDropdownOpen(false)
-                      // Navigate to profile page - you can add navigation logic here
-                    }}
+                    onClick={handleViewProfile}
                     className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     <HiUser className="w-4 h-4 mr-3 text-gray-400" />
                     View Profile
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      setIsProfileDropdownOpen(false)
-                      // Navigate to settings page - you can add navigation logic here
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <HiCog className="w-4 h-4 mr-3 text-gray-400" />
-                    Settings
                   </button>
                   
                   <div className="border-t border-gray-100 my-1"></div>

@@ -15,139 +15,8 @@ const InterviewHistory = () => {
   const [selectedType, setSelectedType] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
 
-  // Sample interview history data
-  const sampleInterviews = [
-    {
-      id: 1,
-      type: 'Technical',
-      role: 'Full Stack Developer',
-      difficulty: 'Medium',
-      date: '2025-12-28',
-      duration: '45 min',
-      questionsAnswered: 5,
-      totalQuestions: 5,
-      overallScore: 88,
-      breakdown: {
-        confidence: 85,
-        communication: 90,
-        technical: 88,
-        problemSolving: 87
-      },
-      status: 'completed',
-      strengths: ['Clear communication', 'Good examples', 'Structured answers'],
-      improvements: ['Time management', 'More technical depth']
-    },
-    {
-      id: 2,
-      type: 'HR',
-      role: 'Product Manager',
-      difficulty: 'Easy',
-      date: '2025-12-25',
-      duration: '30 min',
-      questionsAnswered: 5,
-      totalQuestions: 5,
-      overallScore: 92,
-      breakdown: {
-        confidence: 95,
-        communication: 92,
-        technical: 88,
-        problemSolving: 93
-      },
-      status: 'completed',
-      strengths: ['Excellent confidence', 'Strong motivation', 'Good career vision'],
-      improvements: ['Company research', 'Specific examples']
-    },
-    {
-      id: 3,
-      type: 'Behavioral',
-      role: 'Frontend Developer',
-      difficulty: 'Medium',
-      date: '2025-12-22',
-      duration: '40 min',
-      questionsAnswered: 4,
-      totalQuestions: 5,
-      overallScore: 75,
-      breakdown: {
-        confidence: 72,
-        communication: 78,
-        technical: 74,
-        problemSolving: 76
-      },
-      status: 'completed',
-      strengths: ['Good STAR method', 'Real examples'],
-      improvements: ['More detail', 'Quantify results', 'Eye contact']
-    },
-    {
-      id: 4,
-      type: 'Technical',
-      role: 'Backend Engineer',
-      difficulty: 'Hard',
-      date: '2025-12-20',
-      duration: '50 min',
-      questionsAnswered: 3,
-      totalQuestions: 5,
-      overallScore: 68,
-      breakdown: {
-        confidence: 65,
-        communication: 70,
-        technical: 68,
-        problemSolving: 69
-      },
-      status: 'completed',
-      strengths: ['Problem-solving approach', 'Basic concepts'],
-      improvements: ['Advanced concepts', 'Code optimization', 'System design']
-    },
-    {
-      id: 5,
-      type: 'HR',
-      role: 'Data Scientist',
-      difficulty: 'Easy',
-      date: '2025-12-18',
-      duration: '28 min',
-      questionsAnswered: 5,
-      totalQuestions: 5,
-      overallScore: 85,
-      breakdown: {
-        confidence: 88,
-        communication: 85,
-        technical: 82,
-        problemSolving: 85
-      },
-      status: 'completed',
-      strengths: ['Clear goals', 'Good energy', 'Professional'],
-      improvements: ['Deeper research', 'Ask questions']
-    },
-    {
-      id: 6,
-      type: 'Technical',
-      role: 'DevOps Engineer',
-      difficulty: 'Medium',
-      date: '2025-12-15',
-      duration: '42 min',
-      questionsAnswered: 5,
-      totalQuestions: 5,
-      overallScore: 81,
-      breakdown: {
-        confidence: 80,
-        communication: 83,
-        technical: 81,
-        problemSolving: 80
-      },
-      status: 'completed',
-      strengths: ['Infrastructure knowledge', 'Good explanations'],
-      improvements: ['Container orchestration', 'CI/CD depth']
-    }
-  ]
-
   // Progress data for chart - will be populated from backend data
-  const [progressData, setProgressData] = useState([
-    { date: 'Dec 15', score: 81, interviews: 1 },
-    { date: 'Dec 18', score: 85, interviews: 2 },
-    { date: 'Dec 20', score: 68, interviews: 3 },
-    { date: 'Dec 22', score: 75, interviews: 4 },
-    { date: 'Dec 25', score: 92, interviews: 5 },
-    { date: 'Dec 28', score: 88, interviews: 6 }
-  ])
+  const [progressData, setProgressData] = useState([])
 
   useEffect(() => {
     const fetchInterviewHistory = async () => {
@@ -181,27 +50,34 @@ const InterviewHistory = () => {
             improvements: interview.feedback?.improvements || []
           }))
 
-          setInterviews(mappedInterviews.length > 0 ? mappedInterviews : sampleInterviews)
+          setInterviews(mappedInterviews)
 
-          // Generate progress data
+          // Generate progress data from real interviews
           if (mappedInterviews.length > 0) {
-            const progressPoints = mappedInterviews
-              .slice(-6) // Last 6 interviews
-              .map((interview, index) => ({
-                date: new Date(interview.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                score: interview.overallScore,
-                interviews: index + 1
-              }))
-            setProgressData(progressPoints)
+            // Sort by date and take last 6
+            const sortedInterviews = [...mappedInterviews].sort((a, b) => 
+              new Date(a.date) - new Date(b.date)
+            );
+            const last6 = sortedInterviews.slice(-6);
+            
+            const progressPoints = last6.map((interview, index) => ({
+              date: new Date(interview.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              score: interview.overallScore,
+              interviews: index + 1
+            }));
+            setProgressData(progressPoints);
+          } else {
+            setProgressData([]);
           }
         } else {
-          // Use sample data if no backend data
-          setInterviews(sampleInterviews)
+          // No interviews found
+          setInterviews([])
+          setProgressData([])
         }
       } catch (error) {
         console.error('Error fetching interview history:', error)
-        // Fallback to sample data
-        setInterviews(sampleInterviews)
+        setInterviews([])
+        setProgressData([])
       } finally {
         setIsLoading(false)
       }
@@ -210,7 +86,7 @@ const InterviewHistory = () => {
     if (user) {
       fetchInterviewHistory()
     } else {
-      setInterviews(sampleInterviews)
+      setInterviews([])
       setIsLoading(false)
     }
   }, [user])
@@ -254,11 +130,21 @@ const InterviewHistory = () => {
     return true
   })
 
+  // Calculate statistics dynamically
+  const calculateImprovement = () => {
+    if (interviews.length < 2) return '+0%';
+    const sortedByDate = [...interviews].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const firstScore = sortedByDate[0].overallScore;
+    const lastScore = sortedByDate[sortedByDate.length - 1].overallScore;
+    const improvement = lastScore - firstScore;
+    return improvement >= 0 ? `+${improvement}%` : `${improvement}%`;
+  };
+
   const stats = {
     total: interviews.length,
-    avgScore: Math.round(interviews.reduce((sum, i) => sum + i.overallScore, 0) / interviews.length),
+    avgScore: interviews.length > 0 ? Math.round(interviews.reduce((sum, i) => sum + i.overallScore, 0) / interviews.length) : 0,
     completed: interviews.filter(i => i.status === 'completed').length,
-    improvement: '+12%'
+    improvement: calculateImprovement()
   }
 
   return (
@@ -308,21 +194,30 @@ const InterviewHistory = () => {
         {/* Progress Chart */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Trend</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={progressData}>
-              <defs>
-                <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis domain={[0, 100]} />
-              <Tooltip />
-              <Area type="monotone" dataKey="score" stroke="#3b82f6" fillOpacity={1} fill="url(#colorScore)" />
-            </AreaChart>
-          </ResponsiveContainer>
+          {progressData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={progressData}>
+                <defs>
+                  <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Area type="monotone" dataKey="score" stroke="#3b82f6" fillOpacity={1} fill="url(#colorScore)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <HiTrendingUp className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No data to display</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Filters */}
@@ -333,10 +228,10 @@ const InterviewHistory = () => {
               Filters
             </h3>
             <button
-              onClick={() => navigate('/student-dashboard/interview/start')}
+              onClick={() => navigate('/student-dashboard/applications')}
               className="px-4 py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-800 transition-colors"
             >
-              + New Interview
+              View Applications
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -394,7 +289,24 @@ const InterviewHistory = () => {
 
         {/* Interview List */}
         <div className="space-y-4">
-          {filteredInterviews.length === 0 ? (
+          {isLoading ? (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700 mx-auto mb-4"></div>
+              <p className="text-gray-500">Loading interview history...</p>
+            </div>
+          ) : interviews.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+              <HiVideoCamera className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-lg font-semibold text-gray-900 mb-2">No Interviews Yet</p>
+              <p className="text-gray-500 mb-4">Complete job application interviews to see your history here</p>
+              <button
+                onClick={() => navigate('/student-dashboard/applications')}
+                className="px-6 py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-800 transition-colors"
+              >
+                View Applications
+              </button>
+            </div>
+          ) : filteredInterviews.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
               <HiVideoCamera className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500 mb-4">No interviews match your filters</p>
@@ -492,12 +404,8 @@ const InterviewHistory = () => {
                     <button
                       onClick={() => navigate('/student-dashboard/interview/results', {
                         state: {
-                          type: interview.type.toLowerCase(),
-                          role: interview.role,
-                          difficulty: interview.difficulty.toLowerCase(),
-                          answers: [],
-                          totalQuestions: interview.totalQuestions,
-                          completedQuestions: interview.questionsAnswered
+                          applicationId: interview.id,
+                          interviewId: interview.id
                         }
                       })}
                       className="w-full px-4 py-2 bg-blue-700 text-white text-sm font-semibold rounded-lg hover:bg-blue-800 transition-colors flex items-center justify-center space-x-1"

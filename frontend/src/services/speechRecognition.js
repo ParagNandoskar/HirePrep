@@ -89,7 +89,12 @@ class SpeechRecognitionService {
     }
 
     if (this.isListening) {
-      console.warn('Already listening');
+      console.warn('Speech recognition already active, stopping previous session first');
+      this.stop();
+      // Wait a moment before restarting
+      setTimeout(() => {
+        return this.start(callbacks);
+      }, 100);
       return false;
     }
 
@@ -108,6 +113,7 @@ class SpeechRecognitionService {
       return true;
     } catch (error) {
       console.error('Failed to start speech recognition:', error);
+      this.isListening = false;
       return false;
     }
   }
@@ -123,6 +129,7 @@ class SpeechRecognitionService {
       console.log('🎤 Speech recognition stopped');
     } catch (error) {
       console.error('Failed to stop speech recognition:', error);
+      this.isListening = false;
     }
 
     return this.transcript;
