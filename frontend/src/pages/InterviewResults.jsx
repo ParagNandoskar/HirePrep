@@ -117,7 +117,7 @@ const InterviewResults = () => {
           strengths: aiAnalysis.strengths || [],
           improvements: aiAnalysis.improvements || [],
           insights: aiAnalysis.insights || '',
-          behavioralInsights: aiAnalysis.behavioralInsights || '',
+          behavioralInsights: aiAnalysis.behavioralInsights || null,
           recommendation: aiAnalysis.recommendation || '',
           integrityWarning: aiAnalysis.integrityWarning || null
         })
@@ -465,15 +465,32 @@ const InterviewResults = () => {
             )}
 
             {/* Behavioral Insights */}
-            {interviewData.behavioralInsights && (
+            {interviewData.behavioralInsights && typeof interviewData.behavioralInsights === 'object' && (
               <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl shadow-sm border-2 border-blue-200 p-6">
                 <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
                   <HiAcademicCap className="w-6 h-6 mr-2 text-blue-600" />
                   Behavioral Analysis
                 </h3>
-                <p className="text-gray-700 leading-relaxed text-base">
-                  {interviewData.behavioralInsights}
-                </p>
+                <div className="space-y-3 text-gray-700">
+                  {interviewData.behavioralInsights.eyeContact && (
+                    <div className="flex items-center">
+                      <span className="font-semibold w-32">Eye Contact:</span>
+                      <span className="text-base">{interviewData.behavioralInsights.eyeContact}</span>
+                    </div>
+                  )}
+                  {interviewData.behavioralInsights.confidence && (
+                    <div className="flex items-center">
+                      <span className="font-semibold w-32">Confidence:</span>
+                      <span className="text-base">{interviewData.behavioralInsights.confidence}</span>
+                    </div>
+                  )}
+                  {interviewData.behavioralInsights.engagement && (
+                    <div className="flex items-center">
+                      <span className="font-semibold w-32">Engagement:</span>
+                      <span className="text-base">{interviewData.behavioralInsights.engagement}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

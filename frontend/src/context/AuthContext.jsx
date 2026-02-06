@@ -187,9 +187,12 @@ export const AuthProvider = ({ children }) => {
                                   error.message.includes('timeout') ||
                                   error.name === 'TypeError'
                                   
-            const isAuthError = error.message.includes('Unauthorized') ||
+            const isAuthError = error.isAuthError || 
+                               error.status === 401 ||
+                               error.message.includes('Unauthorized') ||
                                error.message.includes('401') ||
-                               error.message.includes('Token expired')
+                               error.message.includes('Token expired') ||
+                               error.message.includes('Authentication failed')
             
             if (isNetworkError) {
               // Network failed: Trust saved data for now to keep the user logged in

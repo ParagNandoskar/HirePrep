@@ -4,6 +4,84 @@ const Application = require('../models/Application');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
+ * Generate fallback feedback when transcript is not available
+ * @param {Object} application - The application object
+ * @returns {Object} Fallback detailed feedback object
+ */
+function generateFallbackFeedback(application) {
+  const scores = application.aiAnalysis?.scores || {};
+  const strengths = application.aiAnalysis?.strengths || [];
+  const improvements = application.aiAnalysis?.improvements || [];
+  const overallScore = application.screeningScore || 0;
+
+  return {
+    summary: "Your interview has been evaluated based on available performance metrics. While a detailed transcript analysis is not available, we've assessed your overall performance.",
+    
+    detailedAnalysis: `Based on your interview performance, you achieved an overall score of ${overallScore}%. ${strengths.length > 0 ? 'Your key strengths include ' + strengths.join(', ') + '.' : 'Continue working on building your core interview skills.'} ${improvements.length > 0 ? 'Areas for improvement: ' + improvements.join(', ') + '.' : ''}`,
+    
+    skillBreakdown: {
+      communication: {
+        score: scores.communication || 70,
+        feedback: "Communication skills are essential for conveying your ideas effectively during interviews.",
+        whyItMatters: "Clear communication helps you articulate your experience and thoughts to interviewers.",
+        howToImprove: [
+          "Practice the STAR method for structuring answers",
+          "Record yourself answering common questions",
+          "Focus on speaking clearly and at a moderate pace",
+          "Use specific examples from your experience"
+        ]
+      },
+      technical: {
+        score: scores.technical || 70,
+        feedback: "Technical knowledge demonstrates your expertise and readiness for the role.",
+        whyItMatters: "Strong technical skills are crucial for performing job responsibilities effectively.",
+        howToImprove: [
+          "Review fundamental concepts regularly",
+          "Practice coding problems on platforms like LeetCode",
+          "Build personal projects to demonstrate skills",
+          "Stay updated with industry trends and technologies"
+        ]
+      },
+      problemSolving: {
+        score: scores.problemSolving || 70,
+        feedback: "Problem-solving ability shows how you approach challenges and find solutions.",
+        whyItMatters: "Employers value candidates who can think critically and solve complex problems.",
+        howToImprove: [
+          "Break down problems into smaller, manageable steps",
+          "Think aloud during problem-solving to show your process",
+          "Practice with various problem types and scenarios",
+          "Learn from past mistakes and iterate on solutions"
+        ]
+      },
+      confidence: {
+        score: scores.behavioral || scores.video || 70,
+        feedback: "Confidence reflects your self-assurance and ability to handle pressure.",
+        whyItMatters: "Confident candidates demonstrate readiness and belief in their abilities.",
+        howToImprove: [
+          "Maintain good eye contact and posture",
+          "Practice power poses before interviews",
+          "Prepare thoroughly to boost confidence",
+          "Focus on your achievements and strengths"
+        ]
+      }
+    },
+    
+    proTips: [
+      "Research the company thoroughly before interviews",
+      "Prepare questions to ask the interviewer",
+      "Test your technical setup (camera, mic, internet) beforehand",
+      "Take mock interviews to build confidence",
+      "Follow up with a thank-you note after interviews"
+    ],
+    
+    finalRecommendation: `With an overall score of ${overallScore}%, ${overallScore >= 70 ? "you're on the right track! Keep practicing and refining your skills." : "there's room for improvement. Focus on the areas highlighted above and keep practicing."} Remember, every interview is a learning opportunity.`,
+    
+    generatedAt: new Date(),
+    isFallback: true
+  };
+}
+
+/**
  * Generate comprehensive, detailed feedback for interview performance
  * @param {string} applicationId - The application ID
  * @returns {Promise<Object>} Detailed feedback object
@@ -21,8 +99,12 @@ async function generateDetailedFeedback(applicationId) {
       throw new Error('Application not found');
     }
 
+    // Check if interview transcript is available
     if (!application.interviewTranscript || application.interviewTranscript.length === 0) {
-      throw new Error('No interview transcript available');
+      console.log(`⚠️ No interview transcript for application ${applicationId}, generating fallback feedback`);
+      
+      // Generate feedback based on available AI analysis data
+      return generateFallbackFeedback(application);
     }
 
     // Build conversation text from transcript

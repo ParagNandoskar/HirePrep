@@ -50,7 +50,10 @@ export const apiService = {
         if (response.status === 401) {
           // AuthContext handles logout/redirect via its global check
           const errorData = await response.json().catch(() => ({ message: 'Unauthorized' }))
-          throw new Error(errorData.message || 'Unauthorized')
+          const error = new Error(errorData.message || 'Authentication failed')
+          error.status = 401
+          error.isAuthError = true
+          throw error
         }
         
         if (!response.ok) {
@@ -63,7 +66,9 @@ export const apiService = {
             console.error('API request failed:', errorData.message || `HTTP error! status: ${response.status}`)
           }
           
-          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+          const error = new Error(errorData.message || `HTTP error! status: ${response.status}`)
+          error.status = response.status
+          throw error
         }
         
         // Handle cases where response might be empty (e.g., successful delete with 204)
@@ -195,6 +200,10 @@ export const authAPI = {
   
   removeToken: () => {
     localStorage.removeItem('authToken')
+    localStorage.removeItem('user')
+  },
+  
+  removeUser: () => {
     localStorage.removeItem('user')
   },
   
