@@ -92,6 +92,18 @@ export const AppProvider = ({ children }) => {
   }
 
   const addNotification = (notification) => {
+    // Check if a notification with the same message already exists
+    const isDuplicate = state.notifications.some(
+      existing => existing.message === notification.message && 
+                  existing.type === notification.type
+    )
+    
+    // Don't add duplicate notifications
+    if (isDuplicate) {
+      console.log('🔕 Prevented duplicate notification:', notification.message)
+      return null
+    }
+    
     const id = Date.now() + Math.random() 
     const defaultNotification = {
       id,

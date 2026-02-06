@@ -30,6 +30,7 @@ const EmployerProfile = () => {
   const [profileImage, setProfileImage] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const hasFetchedRef = React.useRef(false)
+  const isFetchingRef = React.useRef(false)
 
   // Fetch profile data on component mount
   useEffect(() => {
@@ -38,10 +39,13 @@ const EmployerProfile = () => {
     console.log('DEBUG: authToken exists:', !!localStorage.getItem('authToken'))
     
     // Prevent duplicate fetches
-    if (hasFetchedRef.current) {
-      console.log('DEBUG: Already fetched, skipping...')
+    if (hasFetchedRef.current || isFetchingRef.current) {
+      console.log('DEBUG: Already fetched or fetching, skipping...')
       return
     }
+    
+    // Mark as fetching
+    isFetchingRef.current = true
     
     // Prevent duplicate fetches during React Strict Mode
     let isCancelled = false
