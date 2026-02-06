@@ -26,7 +26,7 @@ const EmployerSidebar = () => {
       name: 'Profile Management',
       href: '/employer-dashboard/profile',
       icon: HiUser,
-      current: location.pathname === '/employer-dashboard/profile'
+      current: location.pathname === '/employer-dashboard/profile' || location.pathname === '/employer-dashboard/company'
     },
     {
       name: 'Job Management',
@@ -39,12 +39,6 @@ const EmployerSidebar = () => {
       href: '/employer-dashboard/applications',
       icon: HiClipboardList,
       current: location.pathname === '/employer-dashboard/applications'
-    },
-    {
-      name: 'Company Profile',
-      href: '/employer-dashboard/company',
-      icon: HiOfficeBuilding,
-      current: location.pathname === '/employer-dashboard/company'
     }
   ]
 
