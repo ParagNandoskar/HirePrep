@@ -11,23 +11,49 @@ import base64
 import numpy as np
 import librosa
 import logging
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import io
 import wave
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with detailed format
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+from transformers import pipeline
 
 app = Flask(__name__)
 CORS(app)
+
+logger.info("="*60)
+logger.info("🚀 Initializing Audio Analysis Service")
+logger.info("="*60)
 
 class AudioAnalyzer:
     """A class to handle the analysis of audio chunks."""
     def __init__(self):
         self.sample_rate = 16000  # Standard sample rate for speech
+        logger.info("📊 Initializing AudioAnalyzer...")
+        logger.info(f"   Sample Rate: {self.sample_rate} Hz")
+        
+        try:
+            logger.info("⏳ Loading DistilBERT sentiment model...")
+            start_time = time.time()
+            self.sentiment_analyzer = pipeline(
+                "sentiment-analysis", 
+                model="distilbert-base-uncased-finetuned-sst-2-english"
+            )
+            load_time = time.time() - start_time
+            logger.info(f"✅ Sentiment Analyzer Loaded (took {load_time:.2f}s)")
+            logger.info(f"   Model: distilbert-base-uncased-finetuned-sst-2-english")
+        except Exception as e:
+            logger.error(f"❌ Failed to load sentiment analyzer: {e}")
+            self.sentiment_analyzer = None
         
     def analyze_audio_chunk(self, audio_data):
         """Analyze a chunk of audio data and return a dictionary of results."""
@@ -171,7 +197,7 @@ class AudioAnalyzer:
             duration_minutes = len(audio_array) / self.sample_rate / 60
             words_per_minute = (speech_frames * 2) / max(duration_minutes, 0.01)  # Rough estimate
             
-            return min(200, max(50, words_per_minute))
+            return int(min(200.0, max(50.0, float(words_per_minute))))
             
         except Exception as e:
             logger.error(f"Speech rate estimation error: {e}")
@@ -203,246 +229,281 @@ class AudioAnalyzer:
         except Exception as e:
             logger.error(f"Pause pattern analysis error: {e}")
             return {'silenceRatio': 0.1, 'pauseCount': 5, 'averagePauseLength': 0.5}
-    
-    def analyze_sentiment_simple(self, audio_array):
-        """Analyze sentiment using REAL audio prosody features."""
-        try:
-            if len(audio_array) == 0:
-                return {'sentiment': 'neutral', 'score': 50, 'confidence': 0.5}
-            
-            # REAL pitch extraction
-            pitches, magnitudes = librosa.piptrack(y=audio_array, sr=self.sample_rate)
-            pitch_values = pitches[pitches > 0]
-            
-            if len(pitch_values) == 0:
-                return {'sentiment': 'neutral', 'score': 50, 'confidence': 0.5}
-            
-            # REAL sentiment indicators from prosody research
-            avg_pitch = np.mean(pitch_values)
-            pitch_variance = np.var(pitch_values)
-            energy = np.sqrt(np.mean(audio_array**2))
-            
-            # Normalize pitch (typical speech: 80-300 Hz)
-            pitch_score = min(100, max(0, (avg_pitch - 80) / 220 * 100))
-            
-            # Pitch variance indicates expressiveness
-            variance_score = min(100, np.sqrt(pitch_variance) * 2)
-            
-            # Energy indicates engagement
-            energy_score = min(100, energy / 0.3 * 100)
-            
-            # Weighted sentiment score (research-based)
-            sentiment_score = (
-                pitch_score * 0.4 +      # Higher pitch = more positive
-                variance_score * 0.3 +   # More variation = more engaged
-                energy_score * 0.3       # Higher energy = more positive
-            )
-            
-            # Determine sentiment category
-            if sentiment_score > 65:
-                sentiment = 'positive'
-            elif sentiment_score < 45:
-                sentiment = 'negative'
-            else:
-                sentiment = 'neutral'
-            
-            # Confidence based on signal quality
-            confidence = min(1.0, max(0.3, energy * 2))
-            
-            return {
-                'sentiment': sentiment,
-                'score': float(min(100, max(0, sentiment_score))),
-                'confidence': float(confidence)
-            }
-            
-        except Exception as e:
-            logger.error(f"Sentiment analysis error: {e}")
-            return {'sentiment': 'neutral', 'score': 50, 'confidence': 0.5}
-    
+
     def calculate_stress_level(self, audio_array, speech_features):
-        """Calculate stress level using REAL vocal tremor and pitch variance."""
+        """
+        Calculate stress level based on pitch variation, speech rate, and energy.
+        Higher pitch variation, faster speech, and higher energy can indicate stress.
+        """
         try:
-            if len(audio_array) == 0:
-                return 50
-            
-            # REAL pitch extraction for tremor analysis
+            # Pitch variation (standard deviation of pitch)
             pitches, magnitudes = librosa.piptrack(y=audio_array, sr=self.sample_rate)
-            pitch_values = pitches[pitches > 0]
-            
-            if len(pitch_values) < 10:
-                return 50
-            
-            # Real stress indicators from speech research:
-            
-            # 1. Pitch tremor (variance) - stressed speakers have unstable pitch
-            pitch_variance = np.var(pitch_values)
-            pitch_tremor_score = min(40, np.sqrt(pitch_variance) / 5)  # Max 40 points
-            
-            # 2. Speech rate deviation - stress causes rushed or slowed speech
+            pitch_values = pitches[magnitudes > 0]
+            pitch_std = np.std(pitch_values) if len(pitch_values) > 0 else 0
+
+            # Speech rate (words per minute)
             speech_rate = speech_features.get('speechRate', 120)
-            normal_rate = 120  # words per minute baseline
-            rate_deviation = abs(speech_rate - normal_rate) / normal_rate
-            rate_stress_score = min(25, rate_deviation * 100)  # Max 25 points
-            
-            # 3. Energy fluctuation - stress causes uneven volume
-            energy = np.sqrt(np.mean(audio_array**2))
-            frame_energies = librosa.feature.rms(y=audio_array)[0]
-            energy_variance = np.var(frame_energies)
-            energy_stress_score = min(20, energy_variance * 1000)  # Max 20 points
-            
-            # 4. High-frequency energy - stress raises vocal tension
-            spectral_centroids = librosa.feature.spectral_centroid(y=audio_array, sr=self.sample_rate)[0]
-            avg_centroid = np.mean(spectral_centroids)
-            # Normal speech: 2000-3000 Hz, stressed: 3500+ Hz
-            if avg_centroid > 3500:
-                tension_score = min(15, (avg_centroid - 3500) / 100)
-            else:
-                tension_score = 0
-            
-            # Combine stress indicators
-            total_stress = (
-                pitch_tremor_score +      # 0-40
-                rate_stress_score +       # 0-25
-                energy_stress_score +     # 0-20
-                tension_score            # 0-15
-            )
-            
-            # Normalize to 0-100 scale
-            stress_level = min(100, total_stress)
-            
-            return float(stress_level)
-            
+
+            # Energy (RMS)
+            rms_energy = np.sqrt(np.mean(audio_array**2))
+
+            # Normalize and combine
+            # Pitch std: typical range 10-50 Hz for speech, higher = more stress
+            pitch_stress = min(100.0, max(0.0, (pitch_std / 20) * 100))
+
+            # Speech rate: typical 120-150 wpm, >150 can be stress
+            speech_rate_stress = min(100, max(0, (speech_rate - 150) * 2))
+
+            # Energy: higher energy can be stress
+            energy_stress = min(100, max(0, (rms_energy / 0.3) * 100))
+
+            # Weighted average for overall stress
+            overall_stress = (pitch_stress * 0.4) + (speech_rate_stress * 0.3) + (energy_stress * 0.3)
+            return min(100.0, max(0.0, overall_stress))
+
         except Exception as e:
-            logger.error(f"Stress calculation error: {e}")
-            return 50
-    
+            logger.error(f"Stress level calculation error: {e}")
+            return 30 # Default low stress
+
     def get_default_speech_features(self):
-        """Return default speech features as a fallback."""
+        """Return default speech features when extraction fails."""
         return {
-            'averagePitch': 150,
-            'spectralCentroid': 2000,
+            'averagePitch': 0,
+            'spectralCentroid': 0,
             'mfccFeatures': [0] * 13,
             'speechRate': 120,
             'pausePattern': {'silenceRatio': 0.1, 'pauseCount': 5, 'averagePauseLength': 0.5}
         }
 
-# Initialize analyzer
+    def analyze_audio(self, audio_data, transcript=None):
+        """
+        Analyze audio chunks and transcript for behavioral insights.
+        """
+        logger.info("\n" + "="*60)
+        logger.info("🎵 Starting Audio Analysis")
+        overall_start = time.time()
+        
+        try:
+            # 1. Decode Audio
+            logger.debug("📥 Step 1: Decoding audio data...")
+            decode_start = time.time()
+            audio_bytes = base64.b64decode(audio_data)
+            logger.debug(f"   Audio size: {len(audio_bytes)} bytes")
+            logger.debug(f"   Decode time: {time.time() - decode_start:.3f}s")
+            
+            # Save to temporary file for librosa (it handles formats better)
+            temp_filename = f"temp_{datetime.now().timestamp()}.webm"
+            with open(temp_filename, "wb") as f:
+                f.write(audio_bytes)
+            logger.debug(f"   Saved to temp file: {temp_filename}")
+            
+            # Load audio (resample to 22050Hz for consistency)
+            logger.debug("🔊 Step 2: Loading audio with librosa...")
+            load_start = time.time()
+            y, sr = librosa.load(temp_filename, sr=22050)
+            logger.debug(f"   Duration: {len(y)/sr:.2f}s")
+            logger.debug(f"   Sample rate: {sr} Hz")
+            logger.debug(f"   Load time: {time.time() - load_start:.3f}s")
+            
+            # Cleanup temp file
+            os.remove(temp_filename)
+            
+            # 2. Extract Acoustic Features (Prosody)
+            logger.debug("🎤 Step 3: Extracting prosody features...")
+            prosody_start = time.time()
+            prosody_metrics = self._extract_prosody(y, sr)
+            logger.debug(f"   Prosody extraction time: {time.time() - prosody_start:.3f}s")
+            
+            # 3. Extract Text Features (Sentiment) if transcript provided
+            text_metrics = None
+            if transcript:
+                logger.debug(f"📝 Step 4: Analyzing transcript sentiment...")
+                logger.debug(f"   Transcript: '{transcript[:100]}{'...' if len(transcript) > 100 else ''}'")
+                sentiment_start = time.time()
+                text_metrics = self._analyze_text_sentiment(transcript)
+                logger.debug(f"   Sentiment analysis time: {time.time() - sentiment_start:.3f}s")
+            else:
+                logger.debug("📝 Step 4: No transcript provided, skipping text analysis")
+            
+            # 4. Calculate Hybrid Confidence Score
+            logger.debug("🧠 Step 5: Calculating hybrid confidence...")
+            confidence_score = self._calculate_hybrid_confidence(prosody_metrics, text_metrics)
+            
+            total_time = time.time() - overall_start
+            logger.info(f"✅ Audio Analysis Complete (total time: {total_time:.3f}s)")
+            logger.info(f"   Confidence Score: {confidence_score:.1f}/100")
+            logger.info("="*60 + "\n")
+            
+            return {
+                "prosody": prosody_metrics,
+                "text_analysis": text_metrics,
+                "confidence_score": confidence_score,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Audio Analysis Error: {e}", exc_info=True)
+            return None
+
+    def _extract_prosody(self, y, sr):
+        """Analyze vocal characteristics (Pitch, Energy, Stability)"""
+        try:
+            logger.debug("   🎵 Extracting pitch features...")
+            # Pitch (Fundamental Frequency - F0)
+            pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
+            
+            # Extract distinct pitches
+            pitch_values = []
+            for t in range(pitches.shape[1]):
+                index = magnitudes[:, t].argmax()
+                pitch = pitches[index, t]
+                if pitch > 0:
+                    pitch_values.append(pitch)
+            
+            pitch_values = np.array(pitch_values)
+            logger.debug(f"      Found {len(pitch_values)} pitch values")
+            
+            # 1. Pitch Stability (Variance) - Lower variance = Higher Stability
+            if len(pitch_values) > 0:
+                avg_pitch = np.mean(pitch_values)
+                pitch_std = np.std(pitch_values)
+                # Normalize stability: 0 (shaky) to 100 (steady)
+                # Typical human speech varies, so extreme monotonic is also bad, but high variance = nervous
+                stability_score = max(0, min(100, 100 - (pitch_std / 5)))
+                logger.debug(f"      Avg Pitch: {avg_pitch:.1f}Hz, Std: {pitch_std:.1f}, Stability: {stability_score:.1f}")
+            else:
+                avg_pitch = 0
+                stability_score = 50
+                logger.debug("      No pitch detected, using defaults")
+
+            # 2. Energy (Loudness/Confidence)
+            logger.debug("   🔊 Calculating energy...")
+            rms = librosa.feature.rms(y=y)[0]
+            avg_energy = np.mean(rms)
+            # Normalize energy: arbitrary scale based on typical mic input
+            energy_score = max(0, min(100, avg_energy * 1000))
+            logger.debug(f"      RMS Energy: {avg_energy:.4f}, Score: {energy_score:.1f}")
+            
+            # 3. Clarity (Spectral Flatness) - High flatness = Noise/Whisper, Low = Tonal/Clear
+            logger.debug("   🎯 Calculating clarity...")
+            flatness = librosa.feature.spectral_flatness(y=y)[0]
+            avg_flatness = np.mean(flatness)
+            clarity_score = max(0, min(100, (1 - avg_flatness) * 100))
+            logger.debug(f"      Spectral Flatness: {avg_flatness:.4f}, Clarity: {clarity_score:.1f}")
+            
+            logger.info(f"   🎤 Prosody Results - Pitch: {int(avg_pitch)}Hz, Stability: {int(stability_score)}, Energy: {int(energy_score)}, Clarity: {int(clarity_score)}")
+            
+            return {
+                "pitch_avg": float(avg_pitch),
+                "stability": float(stability_score),
+                "energy": float(energy_score),
+                "clarity": float(clarity_score)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Prosody Extraction Error: {e}", exc_info=True)
+            return {"stability": 50, "energy": 50, "clarity": 50}
+
+    def _analyze_text_sentiment(self, text):
+        """Analyze text using DistilBERT"""
+        if not text or not self.sentiment_analyzer:
+            return None
+            
+        try:
+            # Model returns [{'label': 'POSITIVE', 'score': 0.99}]
+            result = self.sentiment_analyzer(text)[0]
+            label = result['label']
+            score = result['score']
+            
+            # Convert to 0-100 scale
+            # If POSITIVE, score is 50 + (score * 50) -> 50-100
+            # If NEGATIVE, score is 50 - (score * 50) -> 0-50
+            if label == 'POSITIVE':
+                final_score = 50 + (score * 50)
+            else:
+                final_score = 50 - (score * 50)
+                
+            logger.info(f"📝 Text Analysis - Label: {label}, Confidence: {score:.2f}, Final: {final_score:.1f}")
+            
+            return {
+                "label": label,
+                "model_confidence": float(score),
+                "sentiment_score": float(final_score)
+            }
+            
+        except Exception as e:
+            logger.error(f"Text Analysis Error: {e}")
+            return None
+
+    def _calculate_hybrid_confidence(self, prosody, text):
+        """
+        Combine Vocal Stability + Text Confidence = Hybrid Confidence
+        """
+        # Base confidence from voice (How you say it)
+        voice_conf = (prosody['stability'] * 0.6) + (prosody['energy'] * 0.4)
+        
+        if text:
+            # Text confidence (What you say)
+            # High sentiment (very positive OR very negative) implies conviction/confidence
+            # We map 0-100 sentiment to 0-100 confidence intensity
+            text_conf = abs(text['sentiment_score'] - 50) * 2 
+            
+            # Weighted Average: 60% Voice, 40% Text
+            hybrid_score = (voice_conf * 0.6) + (text_conf * 0.4)
+            logger.info(f"🧠 Hybrid Confidence: {hybrid_score:.1f} (Voice: {voice_conf:.1f}, Text: {text_conf:.1f})")
+        else:
+            hybrid_score = voice_conf
+            
+        return min(100, max(0, hybrid_score))
+
+
 analyzer = AudioAnalyzer()
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'audio-analysis',
-        'timestamp': datetime.utcnow().isoformat()
-    })
+    return jsonify({'status': 'healthy', 'service': 'audio-analysis-ml'})
 
 @app.route('/analyze-audio', methods=['POST'])
-def analyze_audio():
-    """Endpoint to analyze a list of audio chunks."""
+def analyze_audio_endpoint():
+    request_start = time.time()
+    logger.info("\n" + "#"*60)
+    logger.info("📨 Received POST /analyze-audio request")
+    
     try:
-        data = request.get_json()
-        
-        if not data or 'audioData' not in data:
-            return jsonify({'error': 'Audio data is required'}), 400
-        
-        interview_id = data.get('interviewId')
+        data = request.json
         audio_chunks = data.get('audioData', [])
+        transcript = data.get('transcript', "")
+        
+        logger.info(f"   Audio chunks: {len(audio_chunks)}")
+        logger.info(f"   Transcript length: {len(transcript)} chars")
+        logger.info(f"   Has transcript: {bool(transcript)}")
         
         if not audio_chunks:
-            return jsonify({'error': 'No audio data provided'}), 400
+            logger.warning("⚠️  No audio data provided")
+            return jsonify({'error': 'No audio data'}), 400
+            
+        # Combine chunks if needed, for now analyze the first/main chunk
+        # In a real stream, we might process them sequentially
+        # For this implementation, we take the largest chunk as the "sample"
+        logger.debug(f"   Processing chunk 1 of {len(audio_chunks)}")
+        main_chunk = audio_chunks[0] 
         
-        # Analyze audio chunks
-        chunk_analyses = []
-        for chunk_data in audio_chunks:
-            analysis = analyzer.analyze_audio_chunk(chunk_data)
-            if analysis:
-                chunk_analyses.append(analysis)
+        result = analyzer.analyze_audio(main_chunk, transcript)
         
-        if not chunk_analyses:
-            return jsonify({'error': 'Failed to analyze audio data'}), 500
+        if not result:
+            logger.error("❌ Analysis returned None")
+            return jsonify({'error': 'Analysis failed'}), 500
         
-        # Aggregate results
-        result = aggregate_audio_analysis(chunk_analyses)
-        result['interviewId'] = interview_id
-        result['analyzedChunks'] = len(chunk_analyses)
+        request_time = time.time() - request_start
+        logger.info(f"✅ Request completed successfully (total: {request_time:.3f}s)")
+        logger.info(f"📤 Response: confidence={result.get('confidence_score', 'N/A'):.1f}")
+        logger.info("#"*60 + "\n")
         
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Audio analysis endpoint error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-def aggregate_audio_analysis(chunk_analyses):
-    """Aggregate analysis results from multiple audio chunks."""
-    try:
-        if not chunk_analyses:
-            return get_default_audio_analysis()
-        
-        # Aggregate tone analysis
-        tone_metrics = ['confidence', 'enthusiasm', 'clarity', 'volume']
-        aggregated_tone = {}
-        
-        for metric in tone_metrics:
-            values = [chunk['toneAnalysis'][metric] for chunk in chunk_analyses if metric in chunk['toneAnalysis']]
-            aggregated_tone[metric] = np.mean(values) if values else 50
-        
-        # Determine overall pace
-        pace_values = [chunk['toneAnalysis'].get('pace', 'moderate') for chunk in chunk_analyses]
-        pace_counts = {pace: pace_values.count(pace) for pace in ['slow', 'moderate', 'fast']}
-        overall_pace = max(pace_counts.items(), key=lambda x: x[1])[0]
-        aggregated_tone['pace'] = overall_pace
-        
-        # Aggregate sentiment scores
-        sentiment_scores = []
-        for chunk in chunk_analyses:
-            sentiment_scores.append({
-                'sentiment': chunk['sentimentScore']['sentiment'],
-                'score': chunk['sentimentScore']['score'],
-                'timestamp': chunk['timestamp']
-            })
-        
-        # Calculate overall sentiment
-        positive_scores = [s['score'] for s in sentiment_scores if s['sentiment'] == 'positive']
-        negative_scores = [s['score'] for s in sentiment_scores if s['sentiment'] == 'negative']
-        neutral_scores = [s['score'] for s in sentiment_scores if s['sentiment'] == 'neutral']
-        
-        if len(positive_scores) > len(negative_scores) and len(positive_scores) > len(neutral_scores):
-            overall_sentiment = 'positive'
-            overall_sentiment_score = np.mean(positive_scores)
-        elif len(negative_scores) > len(neutral_scores):
-            overall_sentiment = 'negative'
-            overall_sentiment_score = np.mean(negative_scores)
-        else:
-            overall_sentiment = 'neutral'
-            overall_sentiment_score = np.mean(neutral_scores) if neutral_scores else 50
-        
-        # Aggregate stress levels
-        stress_levels = [chunk['stressLevel'] for chunk in chunk_analyses]
-        avg_stress_level = np.mean(stress_levels)
-        
-        # Calculate overall audio score
-        overall_audio_score = calculate_overall_audio_score(aggregated_tone, avg_stress_level, overall_sentiment_score)
-        
-        return {
-            'toneAnalysis': aggregated_tone,
-            'sentimentScores': sentiment_scores,
-            'overallSentiment': {
-                'sentiment': overall_sentiment,
-                'score': overall_sentiment_score
-            },
-            'stressLevel': avg_stress_level,
-            'overallAudioScore': overall_audio_score,
-            'analysisMetadata': {
-                'chunksAnalyzed': len(chunk_analyses),
-                'averageSpeechRate': np.mean([chunk['speechFeatures']['speechRate'] for chunk in chunk_analyses]),
-                'dominantSentiment': overall_sentiment
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Audio aggregation error: {e}")
+        logger.error(f"❌ Endpoint Error: {e}", exc_info=True)
+        logger.info("#"*60 + "\n")
         return get_default_audio_analysis()
 
 def calculate_overall_audio_score(tone_analysis, stress_level, sentiment_score):

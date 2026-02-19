@@ -1,15 +1,16 @@
-# Python dependencies for AI microservices
 flask==3.0.0
-flask-cors==4.0.0
-numpy>=1.24.0
-opencv-python>=4.8.0
-mediapipe>=0.10.0
+Flask-Cors==4.0.0
+requests==2.31.0
+python-dotenv==1.0.0
+numpy>=1.26.0
 librosa>=0.10.0
 scikit-learn>=1.3.0
 scipy>=1.11.0
-deepface>=0.0.79
+transformers>=4.30.0
+torch>=2.0.0
+deepface>=0.0.90
+tf-keras>=2.15.0
+tensorflow>=2.15.0
 
-# Optional dependencies for enhanced functionality
-# speechrecognition removed as frontend handles STT
-# pydub==0.25.1  # Uncomment for audio format conversion
-# transformers==4.21.0  # Uncomment for advanced NLP/sentiment analysis
+opencv-python>=4.8.0
+mediapipe>=0.10.0

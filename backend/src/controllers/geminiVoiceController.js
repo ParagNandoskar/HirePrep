@@ -77,10 +77,10 @@ exports.getQuestionAudio = async (req, res) => {
  */
 exports.submitAnswer = async (req, res) => {
   try {
-    const { 
-      sessionId, 
-      answerText, 
-      videoFrames, 
+    const {
+      sessionId,
+      answerText,
+      videoFrames,
       audioChunks,
       videoBlob,
       candidateId,
@@ -92,39 +92,23 @@ exports.submitAnswer = async (req, res) => {
     }
 
     let behavioralData = null;
+    // Combine behavioral scores
+    try {
+      if (videoAnalysis || audioAnalysis) {
+        behavioralData = behavioralAnalysisService.combineBehavioralAnalysis(
+          videoAnalysis || behavioralAnalysisService._getDefaultVideoAnalysis(),
+          audioAnalysis || behavioralAnalysisService._getDefaultAudioAnalysis()
+        );
 
-    // Perform behavioral analysis if video/audio provided
-    if (videoFrames && videoFrames.length > 0 || audioChunks && audioChunks.length > 0) {
-      try {
-        console.log('🔍 Running behavioral analysis...');
-        
-        // Run video and audio analysis in parallel
-        const [videoAnalysis, audioAnalysis] = await Promise.all([
-          videoFrames && videoFrames.length > 0 
-            ? behavioralAnalysisService.analyzeVideo(videoFrames, sessionId)
-            : Promise.resolve(null),
-          audioChunks && audioChunks.length > 0 
-            ? behavioralAnalysisService.analyzeAudio(audioChunks, sessionId)
-            : Promise.resolve(null)
-        ]);
-
-        // Combine behavioral scores
-        if (videoAnalysis || audioAnalysis) {
-          behavioralData = behavioralAnalysisService.combineBehavioralAnalysis(
-            videoAnalysis || behavioralAnalysisService._getDefaultVideoAnalysis(),
-            audioAnalysis || behavioralAnalysisService._getDefaultAudioAnalysis()
-          );
-          
-          console.log('✅ Behavioral analysis complete:', {
-            videoScore: behavioralData.videoScore,
-            audioScore: behavioralData.audioScore,
-            overallBehavioral: behavioralData.overallBehavioralScore
-          });
-        }
-      } catch (error) {
-        console.warn('⚠️ Behavioral analysis failed, using defaults:', error.message);
-        // Continue without behavioral data
+        console.log('✅ Behavioral analysis complete:', {
+          videoScore: behavioralData.videoScore,
+          audioScore: behavioralData.audioScore,
+          overallBehavioral: behavioralData.overallBehavioralScore
+        });
       }
+    } catch (error) {
+      console.warn('⚠️ Behavioral analysis failed, using defaults:', error.message);
+      // Continue without behavioral data
     }
 
     // Optional: Upload video to S3 for record keeping
@@ -168,20 +152,20 @@ exports.completeInterview = async (req, res) => {
     // Generate final analysis with combined scores
     console.log('📊 Generating final analysis...');
     const analysis = await geminiVoiceService.generateFinalAnalysis(sessionId);
-    console.log('✅ Analysis generated:', { 
+    console.log('✅ Analysis generated:', {
       overallScore: analysis.overallScore,
       hasStrengths: !!analysis.strengths,
-      hasImprovements: !!analysis.improvements  
+      hasImprovements: !!analysis.improvements
     });
 
     // Update application with comprehensive interview results
     if (applicationId) {
       console.log(`💾 Updating application ${applicationId}...`);
-      
+
       // Get conversation history to count questions AND save transcript
       const context = await geminiVoiceService.getInterviewProgress(sessionId);
       const questionsAnswered = context ? context.conversationHistory.filter(h => h.type === 'candidate_answer').length : 0;
-      
+
       // Build transcript from conversation history
       const transcript = [];
       if (context && context.conversationHistory) {
@@ -205,9 +189,9 @@ exports.completeInterview = async (req, res) => {
           }
         });
       }
-      
+
       console.log(`📝 Saving interview transcript with ${transcript.length} entries (${questionsAnswered} Q&A pairs)`);
-      
+
       const updatedApp = await Application.findByIdAndUpdate(applicationId, {
         interviewCompleted: true,  // Mark interview as completed
         status: 'interviewed',     // Update status to show they have been interviewed
@@ -238,13 +222,13 @@ exports.completeInterview = async (req, res) => {
         },
         interviewCompletedAt: new Date()
       }, { new: true });
-      
+
       if (updatedApp) {
         console.log(`✅ Application ${applicationId} updated successfully`);
         console.log(`   - interviewCompleted: ${updatedApp.interviewCompleted}`);
         console.log(`   - status: ${updatedApp.status}`);
         console.log(`   - screeningScore: ${updatedApp.screeningScore}`);
-        
+
         // Generate detailed AI feedback asynchronously (don't wait for it)
         const detailedFeedbackService = require('../services/detailedFeedbackService');
         detailedFeedbackService.generateDetailedFeedback(applicationId)
@@ -290,7 +274,7 @@ exports.getProgress = async (req, res) => {
 exports.checkBehavioralServices = async (req, res) => {
   try {
     const health = await behavioralAnalysisService.healthCheck();
-    
+
     const status = health.video && health.audio ? 'healthy' : 'degraded';
     const statusCode = status === 'healthy' ? 200 : 503;
 
@@ -301,8 +285,8 @@ exports.checkBehavioralServices = async (req, res) => {
         audio: health.audio ? 'operational' : 'unavailable'
       },
       timestamp: health.timestamp,
-      message: status === 'healthy' 
-        ? 'All behavioral analysis services are operational' 
+      message: status === 'healthy'
+        ? 'All behavioral analysis services are operational'
         : 'Some behavioral analysis services are unavailable. Interviews will use default scoring.'
     });
   } catch (error) {

@@ -6,6 +6,10 @@ require('dotenv').config();
 const connectDB = require('./src/config/database');
 const { loadSecrets } = require('./src/config/secrets');
 const app = require('./src/app');
+const path = require('path');
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Start server with secrets loading
 async function startServer() {

@@ -14,7 +14,7 @@ class BehavioralAnalysisService {
     async analyzeVideo(videoFrames, interviewId) {
         try {
             console.log(`📹 Analyzing ${videoFrames.length} video frames for interview ${interviewId}...`);
-            
+
             const response = await axios.post(`${VIDEO_ANALYSIS_URL}/analyze-video`, {
                 videoData: videoFrames,
                 interviewId: interviewId
@@ -26,10 +26,10 @@ class BehavioralAnalysisService {
             });
 
             const analysis = response.data;
-            
-            // Calculate behavioral score from video analysis
-            const videoScore = this._calculateVideoScore(analysis);
-            
+
+            // Use the score directly from the Python service (DeepFace + MediaPipe)
+            const videoScore = analysis.overallVideoScore || 0;
+
             return {
                 rawAnalysis: analysis,
                 videoScore: videoScore,
@@ -37,14 +37,14 @@ class BehavioralAnalysisService {
                     eyeContact: analysis.eyeContactScore || 0,
                     engagement: analysis.engagementScore || 0,
                     confidence: analysis.confidenceScore || 0,
-                    attentiveness: analysis.engagementScore || 0, // Use engagement as attentiveness
-                    multiplePersons: false, // Python service doesn't provide this
-                    lookingAway: 0 // Python service doesn't provide this
+                    attentiveness: analysis.eyeContactScore || 0, // Reuse eye contact for now
+                    lookingAway: 100 - (analysis.eyeContactScore || 100), // Infer from eye contact
+                    multiplePersons: false // Not implemented
                 },
                 cheatingIndicators: {
                     multiplePersons: false,
-                    frequentLookAway: false,
-                    noFaceDetected: (analysis.analyzedFrames || 0) === 0
+                    frequentLookAway: (analysis.eyeContactScore || 100) < 50,
+                    noFaceDetected: (analysis.analysisMetadata?.framesAnalyzed || 0) === 0
                 }
             };
         } catch (error) {
@@ -56,40 +56,48 @@ class BehavioralAnalysisService {
 
     /**
      * Analyze audio chunks for tone, stress, and sentiment
-     * @param {Array<string>} audioChunks - Array of base64 encoded audio chunks
+     * @param {Buffer} audioBuffer - Buffer containing audio data
      * @param {string} interviewId - Interview session ID
+     * @param {string} answerText - The transcribed text of the audio
      * @returns {Promise<Object>} - Audio analysis results
      */
-    async analyzeAudio(audioChunks, interviewId) {
+    async analyzeAudio(audioBuffer, interviewId, answerText) {
         try {
-            console.log(`🎤 Analyzing ${audioChunks.length} audio chunks for interview ${interviewId}...`);
-            
-            const response = await axios.post(`${AUDIO_ANALYSIS_URL}/analyze-audio`, {
-                audioChunks: audioChunks,
-                interviewId: interviewId
-            }, {
-                timeout: 30000,
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+            if (!audioBuffer) {
+                throw new Error('No audio buffer provided');
+            }
+
+            // Audio buffer is likely the raw file buffer or JSON from frontend
+            // The frontend sends formData with 'audio' file usually, or json with base64.
+            // Let's assume we read the raw bytes and base64 encode them for the Python service.
+
+            const audioBase64 = audioBuffer.toString('base64');
+
+            const response = await axios.post(`${this.audioServiceUrl}/analyze-audio`, {
+                interviewId,
+                audioData: [audioBase64],
+                transcript: answerText || "" // Pass transcript for VADER/DistilBERT
             });
 
+            console.log('🎤 Audio Analysis ML Result:', JSON.stringify(response.data, null, 2));
             const analysis = response.data;
-            
-            // Calculate behavioral score from audio analysis
-            const audioScore = this._calculateAudioScore(analysis);
-            
+
+            // Map Python ML output to internal metrics
+            // Python: { prosody: { stability, energy, clarity }, text_analysis: { label, sentiment_score }, confidence_score }
+
+            const metrics = {
+                confidence: analysis.confidence_score || 0,
+                clarity: analysis.prosody?.clarity || 0,
+                enthusiasm: analysis.prosody?.energy || 0,
+                stability: analysis.prosody?.stability || 0,
+                sentimentScore: analysis.text_analysis?.sentiment_score || 50,
+                sentimentLabel: analysis.text_analysis?.label || 'NEUTRAL'
+            };
+
             return {
                 rawAnalysis: analysis,
-                audioScore: audioScore,
-                metrics: {
-                    confidence: analysis.toneAnalysis?.confidence || 0,
-                    clarity: analysis.toneAnalysis?.clarity || 0,
-                    enthusiasm: analysis.toneAnalysis?.enthusiasm || 0,
-                    stressLevel: analysis.stressLevel || 0,
-                    pace: analysis.toneAnalysis?.pace || 'moderate',
-                    sentiment: analysis.overallSentiment?.sentiment || 'neutral'
-                }
+                audioScore: Math.round(metrics.confidence), // Use the hybrid confidence directly
+                metrics: metrics
             };
         } catch (error) {
             console.error('❌ Audio analysis error:', error.message);
@@ -105,18 +113,34 @@ class BehavioralAnalysisService {
      * @returns {Object} - Combined behavioral analysis
      */
     combineBehavioralAnalysis(videoAnalysis, audioAnalysis) {
-        // Weighted combination: 50% video, 50% audio
-        const combinedScore = (videoAnalysis.videoScore * 0.5) + (audioAnalysis.audioScore * 0.5);
-        
+        // Weighted combination: 40% video, 40% audio, 20% content (handled elsewhere, so here just 50/50 of what we have)
+        // actually, let's keep it 50/50 for the behavioral part.
+
+        const videoScore = videoAnalysis ? videoAnalysis.videoScore : 0;
+        const audioScore = audioAnalysis ? audioAnalysis.audioScore : 0;
+
+        // If one is missing, use the other. If both, average.
+        let combinedScore = 0;
+        if (videoAnalysis && audioAnalysis) {
+            combinedScore = (videoScore * 0.5) + (audioScore * 0.5);
+        } else if (videoAnalysis) {
+            combinedScore = videoScore;
+        } else if (audioAnalysis) {
+            combinedScore = audioScore;
+        }
+
         return {
             overallBehavioralScore: Math.round(combinedScore),
-            videoScore: Math.round(videoAnalysis.videoScore),
-            audioScore: Math.round(audioAnalysis.audioScore),
+            videoScore: Math.round(videoScore),
+            audioScore: Math.round(audioScore),
             detailedMetrics: {
-                video: videoAnalysis.metrics,
-                audio: audioAnalysis.metrics
+                video: videoAnalysis ? videoAnalysis.metrics : {},
+                audio: audioAnalysis ? audioAnalysis.metrics : {}
             },
-            cheatingIndicators: videoAnalysis.cheatingIndicators,
+            rawAnalysis: {
+                video: videoAnalysis ? videoAnalysis.rawAnalysis : null,
+                audio: audioAnalysis ? audioAnalysis.rawAnalysis : null
+            },
             recommendations: this._generateRecommendations(videoAnalysis, audioAnalysis)
         };
     }
