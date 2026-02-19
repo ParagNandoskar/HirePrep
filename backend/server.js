@@ -1,88 +1,125 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const http = require('http');
+const socketIo = require('socket.io');
 require('dotenv').config();
 
-// Import models to register schemas
-require('./models/User');
-require('./models/Candidate');
-require('./models/Company');
-require('./models/Job');
+const connectDB = require('./src/config/database');
+const { loadSecrets } = require('./src/config/secrets');
+const app = require('./src/app');
+const path = require('path');
 
-const authRoutes = require('./routes/auth');
-const candidateRoutes = require('./routes/candidates');
-const companyRoutes = require('./routes/companies');
-const jobRoutes = require('./routes/jobs');
-const resumeRoutes = require('./routes/resumes');
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-const app = express();
+// Start server with secrets loading
+async function startServer() {
+  try {
+    // Load secrets from AWS Secrets Manager in production
+    if (process.env.NODE_ENV === 'production' && process.env.USE_AWS_SECRETS === 'true') {
+      console.log('🔐 Loading secrets from AWS Secrets Manager...');
+      const secrets = await loadSecrets();
+      
+      if (secrets) {
+        // Override environment variables with secrets
+        process.env.JWT_SECRET = secrets.JWT_SECRET;
+        process.env.JWT_REFRESH_SECRET = secrets.JWT_REFRESH_SECRET;
+        process.env.MONGODB_URI = secrets.MONGODB_URI;
+        process.env.GEMINI_API_KEY = secrets.GEMINI_API_KEY;
+        process.env.AWS_ACCESS_KEY_ID = secrets.AWS_ACCESS_KEY_ID;
+        process.env.AWS_SECRET_ACCESS_KEY = secrets.AWS_SECRET_ACCESS_KEY;
+        process.env.REDIS_PASSWORD = secrets.REDIS_PASSWORD;
+      }
+    }
 
-// Trust proxy setting for rate limiting
-app.set('trust proxy', 1);
-
-// Security middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'development' ? 1000 : 100, // More lenient for development
-  trustProxy: true,
-  standardHeaders: true,
-  legacyHeaders: false,
+    // Connect to database
+    await connectDB();
+    
+    const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: function (origin, callback) {
+      // Allow requests with no origin
+      if (!origin) return callback(null, true);
+      
+      // In development, allow localhost on any port
+      if (process.env.NODE_ENV !== 'production') {
+        if (origin.match(/^https?:\/\/localhost(:\d+)?$/)) {
+          return callback(null, true);
+        }
+      }
+      
+      // Allow specific origins
+      const allowedOrigins = [
+        process.env.FRONTEND_URL || "http://localhost:3000",
+        "http://localhost:5173", // Vite default port
+        "http://localhost:3000", // React default port
+        "http://localhost:8080", // Alternative port
+      ];
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true
+  }
 });
-app.use('/api/', limiter);
 
-// Body parser middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Socket.IO connection handling for real-time interview
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/hireprep', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected successfully'))
-.catch(err => console.error('MongoDB connection error:', err));
+  // Join interview room
+  socket.on('joinInterview', (interviewId) => {
+    socket.join(`interview_${interviewId}`);
+    console.log(`User ${socket.id} joined interview ${interviewId}`);
+  });
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/candidates', candidateRoutes);
-app.use('/api/companies', companyRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/resumes', resumeRoutes);
+  // Handle real-time interview messages
+  socket.on('interviewMessage', (data) => {
+    socket.to(`interview_${data.interviewId}`).emit('interviewMessage', data);
+  });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    service: 'HirePrep Backend API'
+  // Handle WebRTC signaling
+  socket.on('offer', (data) => {
+    socket.to(`interview_${data.interviewId}`).emit('offer', data);
+  });
+
+  socket.on('answer', (data) => {
+    socket.to(`interview_${data.interviewId}`).emit('answer', data);
+  });
+
+  socket.on('ice-candidate', (data) => {
+    socket.to(`interview_${data.interviewId}`).emit('ice-candidate', data);
+  });
+
+  // Handle video/audio analysis data
+  socket.on('analysisData', (data) => {
+    socket.to(`interview_${data.interviewId}`).emit('analysisUpdate', data);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
   });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    message: 'Something went wrong!', 
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
-  });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
+// Make io accessible to routes
+app.set('io', io);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔐 Security: ${process.env.USE_AWS_SECRETS === 'true' ? 'AWS Secrets Manager' : 'Environment Variables'}`);
 });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
