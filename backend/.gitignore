@@ -133,6 +133,7 @@ wheels/
 *.egg
 
 # Virtual environments
+captured_frames/
 venv/
 ENV/
 env/
