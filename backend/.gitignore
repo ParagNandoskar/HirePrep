@@ -139,6 +139,17 @@ ENV/
 env/
 .env
 
+# ML/AI Models - Do not push large model files
+*.h5
+*.task
+*.pth
+*.onnx
+*.pb
+*.tflite
+python-services/deepface_home/
+python-services/services/video_service/models/
+python-services/audio_service/local_models/
+
 # Docker
 .docker/
 

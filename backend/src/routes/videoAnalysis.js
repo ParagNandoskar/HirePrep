@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const VideoAnalysisFrame = require('../models/VideoAnalysisFrame');
 const Interview = require('../models/Interview');
-const { protect } = require('../middlewares/authMiddleware');
+const { authenticate } = require('../middlewares/authMiddleware');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const path = require('path');
 const fs = require('fs');
@@ -13,7 +13,7 @@ const fs = require('fs');
  * @access  Protected
  * @body    { interviewId, candidateId, questionId?, frameData }
  */
-router.post('/frames', protect, async (req, res) => {
+router.post('/frames', authenticate, async (req, res) => {
   try {
     const { interviewId, candidateId, questionId, frames } = req.body;
     
@@ -75,7 +75,7 @@ router.post('/frames', protect, async (req, res) => {
  * @access  Protected
  * @query   questionId, startTime, endTime, limit
  */
-router.get('/interview/:interviewId/frames', protect, async (req, res) => {
+router.get('/interview/:interviewId/frames', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     const { questionId, startTime, endTime, limit } = req.query;
@@ -107,7 +107,7 @@ router.get('/interview/:interviewId/frames', protect, async (req, res) => {
  * @desc    Get aggregated statistics per question
  * @access  Protected
  */
-router.get('/interview/:interviewId/stats', protect, async (req, res) => {
+router.get('/interview/:interviewId/stats', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     
@@ -138,7 +138,7 @@ router.get('/interview/:interviewId/stats', protect, async (req, res) => {
  * @access  Protected
  * @query   interval (seconds, default: 5)
  */
-router.get('/interview/:interviewId/trend', protect, async (req, res) => {
+router.get('/interview/:interviewId/trend', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     const interval = parseInt(req.query.interval) || 5;
@@ -165,7 +165,7 @@ router.get('/interview/:interviewId/trend', protect, async (req, res) => {
  * @desc    Detect potential cheating incidents (looking away patterns)
  * @access  Protected
  */
-router.get('/interview/:interviewId/cheating', protect, async (req, res) => {
+router.get('/interview/:interviewId/cheating', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     
@@ -197,7 +197,7 @@ router.get('/interview/:interviewId/cheating', protect, async (req, res) => {
  * @desc    Export frame data as CSV file
  * @access  Protected
  */
-router.get('/interview/:interviewId/export/csv', protect, async (req, res) => {
+router.get('/interview/:interviewId/export/csv', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     
@@ -299,7 +299,7 @@ router.get('/interview/:interviewId/export/csv', protect, async (req, res) => {
  * @desc    Delete all frame data for an interview (GDPR compliance)
  * @access  Protected (admin only)
  */
-router.delete('/interview/:interviewId/frames', protect, async (req, res) => {
+router.delete('/interview/:interviewId/frames', authenticate, async (req, res) => {
   try {
     const { interviewId } = req.params;
     

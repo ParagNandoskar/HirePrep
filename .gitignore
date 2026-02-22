@@ -42,6 +42,20 @@ ENV/
 env.bak/
 venv.bak/
 
+# HuggingFace models (large files, ~920MB)
+/backend/python-services/audio_service/local_models/
+local_models/
+
+# ML/AI Models - Do not push to git
+*.h5
+*.task
+*.pth
+*.onnx
+*.pb
+*.tflite
+/backend/python-services/deepface_home/
+/backend/python-services/services/video_service/models/
+
 # Flask
 instance/
 .webassets-cache

@@ -11,11 +11,11 @@ const AIVoiceInterview = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-
-  const {
-    jobId,
-    applicationId,
-    jobTitle,
+  
+  const { 
+    jobId, 
+    applicationId, 
+    jobTitle, 
     companyName,
     jobDescription,
     isJobApplication,
@@ -60,7 +60,7 @@ const AIVoiceInterview = () => {
         })
       }
     }, 3000)
-
+    
     return () => clearInterval(interval)
   }, [])
 
@@ -89,26 +89,26 @@ const AIVoiceInterview = () => {
   const startCamera = async () => {
     try {
       console.log('📷 Requesting camera access...')
-
+      
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
+        video: { 
           width: { ideal: 1280 },
           height: { ideal: 720 },
           facingMode: 'user'
         },
         audio: true
       })
-
+      
       console.log('✅ Camera access granted. Stream tracks:', mediaStream.getTracks().map(t => t.kind))
       setStream(mediaStream)
-
+      
       // CRITICAL: Set video source IMMEDIATELY if ref exists
       if (videoRef.current) {
         console.log('📺 Video ref exists - setting srcObject immediately')
         videoRef.current.srcObject = mediaStream
         videoRef.current.muted = true
         videoRef.current.playsInline = true
-
+        
         // Try to play
         setTimeout(() => {
           if (videoRef.current) {
@@ -127,13 +127,13 @@ const AIVoiceInterview = () => {
   // Video ref callback - called when video element mounts
   const videoRefCallback = (element) => {
     videoRef.current = element
-
+    
     if (element && stream) {
       console.log('📺 Video element mounted with existing stream - assigning now')
       element.srcObject = stream
       element.muted = true
       element.playsInline = true
-
+      
       element.play()
         .then(() => console.log('✅ Video playing after mount'))
         .catch(err => console.log('Mount play error:', err.name))
@@ -145,22 +145,22 @@ const AIVoiceInterview = () => {
     if (stream && videoRef.current && !videoRef.current.srcObject) {
       console.log('📺 useEffect: Assigning stream to video element')
       console.log('Stream active:', stream.active, 'Tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`))
-
+      
       const videoElement = videoRef.current
-
+      
       // Set stream and attributes
       videoElement.srcObject = stream
       videoElement.muted = true
       videoElement.playsInline = true
       videoElement.autoplay = true
-
+      
       console.log('📊 Video element state:', {
         srcObject: !!videoElement.srcObject,
         paused: videoElement.paused,
         muted: videoElement.muted,
         autoplay: videoElement.autoplay
       })
-
+      
       // Multiple play attempts
       const attemptPlay = (delay, label) => {
         setTimeout(() => {
@@ -177,7 +177,7 @@ const AIVoiceInterview = () => {
           }
         }, delay)
       }
-
+      
       attemptPlay(0, 'Immediate')
       attemptPlay(100, '100ms')
       attemptPlay(500, '500ms')
@@ -188,7 +188,7 @@ const AIVoiceInterview = () => {
   const initializeInterview = async () => {
     try {
       setIsLoadingQuestions(true)
-
+      
       // Initialize Gemini AI interview session
       // Use 'practice' as jobId for practice interviews
       const response = await geminiVoiceService.initializeInterview(
@@ -196,18 +196,18 @@ const AIVoiceInterview = () => {
         applicationId,
         user?.name || 'Candidate'
       )
-
+      
       setSessionId(response.sessionId)
-
+      
       // Get first question (but don't speak it yet)
       const questionResponse = await geminiVoiceService.getNextQuestion(response.sessionId)
-
+      
       setCurrentQuestion(questionResponse.question)
       setQuestionNumber(questionResponse.questionNumber)
-
+      
       // Finish loading first
       setIsLoadingQuestions(false)
-
+      
       // Wait a moment for UI to render, then speak
       setTimeout(async () => {
         // Load voices if not loaded yet
@@ -217,7 +217,7 @@ const AIVoiceInterview = () => {
             setTimeout(resolve, 1000);
           });
         }
-
+        
         // Now speak the question
         await speakQuestion(questionResponse.question)
       }, 500)
@@ -231,10 +231,10 @@ const AIVoiceInterview = () => {
   const getNextQuestion = async (sid = sessionId) => {
     try {
       const response = await geminiVoiceService.getNextQuestion(sid)
-
+      
       setCurrentQuestion(response.question)
       setQuestionNumber(response.questionNumber)
-
+      
       // Speak the question automatically for subsequent questions
       await speakQuestion(response.question)
     } catch (error) {
@@ -249,18 +249,18 @@ const AIVoiceInterview = () => {
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
-
+      
       // Skip speaking if muted
       if (isSpeechMuted) {
         console.log('🔇 Speech is muted, skipping audio playback');
         return;
       }
-
+      
       setIsAISpeaking(true)
-
+      
       // Play audio using browser TTS
       await geminiVoiceService.playQuestionAudio(questionText, 'professional_female')
-
+      
       setIsAISpeaking(false)
     } catch (error) {
       console.error('Error speaking question:', error)
@@ -284,119 +284,65 @@ const AIVoiceInterview = () => {
     }
   }
 
-  // Ref to track if we expect the recognition to end (user clicked stop)
-  const isExpectedToEndRef = useRef(false)
-  const recognitionRef = useRef(null)
-
   const startListening = () => {
     if (!speechRecognition.isSupported()) {
       setError('Speech recognition is not supported in your browser. Please use Chrome or Edge.')
       return
     }
 
-    // Prevent starting if already active
-    if (isListening) return;
+    // Prevent starting if already listening
+    if (speechRecognition.isActive()) {
+      console.warn('Speech recognition already active, ignoring start request');
+      return;
+    }
 
     setCurrentTranscript('')
     setInterimTranscript('')
     setError(null)
-    isExpectedToEndRef.current = false
 
     // Start video recording
     startVideoRecording()
 
-    const startRecognition = () => {
-      try {
-        const recognition = speechRecognition.getRecognition();
-        if (!recognition) return;
-
-        recognition.continuous = false; // We manually handle continuity for better control
-        recognition.interimResults = true;
-
-        recognition.onstart = () => {
-          console.log('🎤 Speech recognition started');
-          setIsListening(true);
-        };
-
-        recognition.onresult = (event) => {
-          let interim = '';
-          let final = '';
-
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              final += event.results[i][0].transcript;
-            } else {
-              interim += event.results[i][0].transcript;
-            }
-          }
-
-          if (final) {
-            setCurrentTranscript(prev => {
-              const newTranscript = prev + ' ' + final;
-              console.log('📝 New finalized part:', final);
-              return newTranscript;
-            });
-            setInterimTranscript('');
-          }
-
-          if (interim) {
-            setInterimTranscript(interim);
-          }
-        };
-
-        recognition.onerror = (event) => {
-          console.error('Speech recognition error:', event.error);
-          if (event.error === 'no-speech') {
-            // Ignore no-speech and let it restart
-          } else if (event.error === 'not-allowed') {
-            setError('Microphone permission denied.');
-            isExpectedToEndRef.current = true;
-            setIsListening(false);
-          }
-        };
-
-        recognition.onend = () => {
-          console.log('🎤 Speech recognition ended');
-          // Auto-restart if not manually stopped
-          if (!isExpectedToEndRef.current) {
-            console.log('🔄 Auto-restarting speech recognition...');
-            try {
-              recognition.start();
-            } catch (e) {
-              console.log('Restart failed (likely already stated):', e);
-            }
-          } else {
-            setIsListening(false);
-          }
-        };
-
-        recognition.start();
-        recognitionRef.current = recognition;
-      } catch (e) {
-        console.error('Failed to start recognition:', e);
-        setError('Failed to start speech recognition.');
-        setIsListening(false);
+    const started = speechRecognition.start({
+      onResult: (result) => {
+        if (result.isFinal) {
+          setCurrentTranscript(prev => prev + ' ' + result.transcript)
+          setInterimTranscript('')
+        } else {
+          setInterimTranscript(result.interim)
+        }
+      },
+      onEnd: () => {
+        setIsListening(false)
+      },
+      onError: (error) => {
+        console.error('Speech recognition error:', error)
+        setIsListening(false)
+        
+        if (error === 'no-speech') {
+          setError('No speech detected. Please try again.')
+        } else if (error === 'not-allowed') {
+          setError('Microphone permission denied. Please allow microphone access.')
+        } else if (error !== 'aborted') {
+          // Don't show error for aborted (user stopped intentionally)
+          setError('Speech recognition error. Please try again.')
+        }
       }
-    };
+    })
 
-    startRecognition();
+    if (started) {
+      setIsListening(true)
+    }
   }
 
   const stopListening = () => {
-    console.log('🛑 Stopping speech recognition manually');
-    isExpectedToEndRef.current = true;
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) { /* ignore if already stopped */ }
-    }
-
-    setIsListening(false);
-    setInterimTranscript(''); // Clear interim
-
+    const finalTranscript = speechRecognition.stop()
+    setIsListening(false)
+    setCurrentTranscript(finalTranscript)
+    setInterimTranscript('')
+    
     // Stop video recording
-    stopVideoRecording();
+    stopVideoRecording()
   }
 
   const startVideoRecording = () => {
@@ -410,7 +356,7 @@ const AIVoiceInterview = () => {
     setAudioChunks([])
     audioChunksRef.current = []
     recordedChunksRef.current = []
-
+    
     try {
       // Start MediaRecorder for audio chunks
       const mediaRecorder = new MediaRecorder(stream, {
@@ -420,7 +366,7 @@ const AIVoiceInterview = () => {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           recordedChunksRef.current.push(event.data)
-
+          
           // Convert audio chunk to base64 for behavioral analysis
           const reader = new FileReader()
           reader.onloadend = () => {
@@ -441,10 +387,10 @@ const AIVoiceInterview = () => {
       // Request data every 2 seconds for audio analysis
       mediaRecorder.start(2000)
       mediaRecorderRef.current = mediaRecorder
-
+      
       // Capture video frames every 2 seconds for facial analysis
       startFrameCapture()
-
+      
       console.log('📹 Video recording & behavioral tracking started')
     } catch (error) {
       console.error('Video recording error:', error)
@@ -469,7 +415,7 @@ const AIVoiceInterview = () => {
         canvas.width = video.videoWidth
         canvas.height = video.videoHeight
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
+        
         // Convert to base64
         const frameData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
         setVideoFrames(prev => [...prev, frameData])
@@ -500,12 +446,12 @@ const AIVoiceInterview = () => {
 
     try {
       console.log(`📊 Submitting with ${videoFrames.length} frames and ${audioChunks.length} audio chunks`)
-
+      
       // Submit answer with behavioral data to backend
       await geminiVoiceService.submitAnswer(
-        sessionId,
-        answerText,
-        videoFrames,
+        sessionId, 
+        answerText, 
+        videoFrames, 
         audioChunks,
         questionNumber,
         user?._id
@@ -535,7 +481,7 @@ const AIVoiceInterview = () => {
   const finishInterview = async () => {
     try {
       setInterviewComplete(true)
-
+      
       // Get final analysis from Gemini
       const analysis = await geminiVoiceService.completeInterview(sessionId, applicationId)
 
@@ -610,7 +556,7 @@ const AIVoiceInterview = () => {
 
           {/* Progress Bar */}
           <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
+            <div 
               className="bg-blue-600 h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress}%` }}
             ></div>
@@ -641,7 +587,7 @@ const AIVoiceInterview = () => {
                   setIsVideoPlaying(true)
                 }}
               />
-
+              
               {/* Recording Indicator */}
               {isListening && (
                 <div className="absolute top-4 right-4 flex items-center space-x-2 bg-red-600 text-white px-3 py-1 rounded-full animate-pulse">
@@ -680,7 +626,7 @@ const AIVoiceInterview = () => {
           {/* Right: Question Card */}
           <div className="lg:col-span-2">
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow-lg p-8"
-              style={{ minHeight: '300px' }}>
+style={{ minHeight: '300px' }}>
               <div className="flex items-start space-x-4">
                 <div className="flex-shrink-0">
                   <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
@@ -714,13 +660,14 @@ const AIVoiceInterview = () => {
                       <HiVolumeUp className="w-5 h-5" />
                       <span className="text-sm font-medium">Replay Question</span>
                     </button>
-
+                    
                     <button
                       onClick={toggleSpeechMute}
-                      className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${isSpeechMuted
-                          ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                      className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                        isSpeechMuted 
+                          ? 'bg-red-100 text-red-600 hover:bg-red-200' 
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
+                      }`}
                       title={isSpeechMuted ? 'Unmute question audio' : 'Mute question audio'}
                     >
                       {isSpeechMuted ? (
@@ -747,7 +694,7 @@ const AIVoiceInterview = () => {
         {/* Transcript Display */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-3">Your Answer:</h3>
-
+          
           <div className="min-h-[120px] bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
             {currentTranscript || interimTranscript ? (
               <p className="text-gray-900">
