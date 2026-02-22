@@ -18,6 +18,7 @@ const applicationsRoutes = require('./routes/applications');
 const jobsRoutes = require('./routes/jobs');
 const uploadRoutes = require('./routes/upload');
 const geminiVoiceRoutes = require('./routes/geminiVoice');
+const videoAnalysisRoutes = require('./routes/videoAnalysis');
 
 // Import middlewares
 const { errorHandler } = require('./middlewares/errorHandler');
@@ -148,6 +149,7 @@ app.use('/api/applications', applicationsRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/gemini-voice', geminiVoiceRoutes);
+app.use('/api/video-analysis', videoAnalysisRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

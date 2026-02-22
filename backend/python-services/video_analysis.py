@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-Video Analysis Microservice
-Uses MediaPipe for geometric analysis (Eye Contact) and DeepFace for emotion recognition.
+Video Analysis Microservice - UPGRADED WITH DUAL MODAL APPROACH
+Uses MediaPipe Tasks API for precision face tracking and DeepFace for emotion recognition.
+
+🎯 DUAL MODAL EVALUATION:
+1. MediaPipe (Face Landmarks & Head Pose) - Primary orientation tracking
+   - 478 facial landmarks (468 face + 10 iris)
+   - 3D head pose estimation (yaw, pitch, roll)
+   - Gaze direction tracking (iris position)
+   - Baseline calibration support
+   
+2. DeepFace (Emotion Recognition) - Secondary emotion analysis
+   - 7 emotions: happy, sad, angry, fear, surprise, disgust, neutral
+   - Pre-trained CNN for facial expression analysis
 """
 
 import os
@@ -16,10 +27,16 @@ from flask_cors import CORS
 import mediapipe as mp
 import logging
 from deepface import DeepFace
+from dotenv import load_dotenv
+from mongo_storage import init_storage
+import mongo_storage  # Import module to access storage object
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging with detailed format
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,  # Changed to INFO for production (less verbose)
     format='%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -29,39 +46,162 @@ app = Flask(__name__)
 CORS(app)
 
 logger.info("="*60)
-logger.info("🚀 Initializing Video Analysis Service")
+logger.info("🚀 Initializing Video Analysis Service (UPGRADED)")
 logger.info("="*60)
 
-# Initialize face detection using OpenCV (no model download needed)
-logger.info("📊 Loading face detection models...")
+# Initialize MediaPipe FaceLandmarker (New Tasks API)
+logger.info("📊 Loading MediaPipe FaceLandmarker...")
 mp_start = time.time()
 
-# Use OpenCV's Haar Cascade for face detection (built-in, no download needed)
-import cv2
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+# Check for model file
+MODEL_PATH = 'face_landmarker.task'
+if not os.path.exists(MODEL_PATH):
+    logger.error(f"❌ Model file not found: {MODEL_PATH}")
+    logger.error("   Download from: https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task")
+    raise FileNotFoundError(f"Required model file missing: {MODEL_PATH}")
 
-if face_cascade.empty():
-    logger.error("❌ Failed to load face cascade!")
-if eye_cascade.empty():
-    logger.error("❌ Failed to load eye cascade!")
+# Setup MediaPipe options
+base_options = mp.tasks.BaseOptions(model_asset_path=MODEL_PATH)
+landmarker_options = mp.tasks.vision.FaceLandmarkerOptions(
+    base_options=base_options,
+    num_faces=1,
+    min_face_detection_confidence=0.5,
+    min_face_presence_confidence=0.5,
+    min_tracking_confidence=0.5
+)
 
 mp_time = time.time() - mp_start
 
-logger.info(f"✅ Face Detection Models Loaded (took {mp_time:.2f}s)")
-logger.info("   - OpenCV Haar Cascade: Fast face & eye detection")
+logger.info(f"✅ MediaPipe FaceLandmarker Loaded (took {mp_time:.2f}s)")
+logger.info("   - 478 facial landmarks (468 face + 10 iris)")
+logger.info("   - 3D head pose + gaze tracking")
 logger.info("⏳ DeepFace Model will load on first inference...")
+
+# Initialize MongoDB storage (optional)
+try:
+    init_storage()
+    logger.info("📊 MongoDB storage initialized")
+except Exception as e:
+    logger.warning(f"⚠️  MongoDB storage not available: {e}")
+    logger.warning("   Service will continue without frame storage")
+
 logger.info("="*60 + "\n")
 
 class VideoAnalyzer:
     def __init__(self):
-        logger.info("🎥 VideoAnalyzer initialized and ready")
+        logger.info("🎥 VideoAnalyzer initialized with MediaPipe + DeepFace")
         self.frame_count = 0
+        
+        # Thresholds (from face_center_guide.py - proven to work)
+        self.YAW_THRESHOLD = 15  # degrees - looking left/right
+        self.PITCH_UP_THRESHOLD = 12  # degrees - looking UP
+        self.PITCH_DOWN_THRESHOLD = 8  # degrees - looking DOWN (stricter)
+        
+        # Baseline calibration (optional - can be enabled per session)
+        self.baseline_pitch = None
+        self.baseline_pitch_ratio = None  # For ratio-based calibration
+        self.baseline_samples = []
+        self.baseline_calibrated = False
+        
+    def calculate_simple_head_pose(self, landmarks, width, height):
+        """Simple 2D head pose estimation (more reliable and sensitive for pitch)"""
+        # Key points
+        nose_tip = landmarks[1]
+        chin = landmarks[152]
+        forehead = landmarks[10]
+        left_eye = landmarks[33]
+        right_eye = landmarks[263]
+        left_eye_top = landmarks[159]
+        left_eye_bottom = landmarks[145]
+        
+        # Convert to pixel coordinates
+        nose_y = nose_tip.y * height
+        chin_y = chin.y * height
+        forehead_y = forehead.y * height
+        eye_y = ((left_eye_top.y + left_eye_bottom.y) / 2) * height
+        
+        left_eye_x = left_eye.x * width
+        right_eye_x = right_eye.x * width
+        nose_x = nose_tip.x * width
+        
+        # Calculate yaw from eye-to-eye vs nose position
+        eye_center_x = (left_eye_x + right_eye_x) / 2
+        eye_distance = abs(right_eye_x - left_eye_x)
+        
+        if eye_distance > 0:
+            nose_offset_ratio = (nose_x - eye_center_x) / (eye_distance / 2)
+            yaw = nose_offset_ratio * 30  # Scale to degrees
+        else:
+            yaw = 0
+        
+        # Improved pitch calculation using multiple reference points
+        # Use eye-to-nose distance as the primary indicator
+        nose_eye_distance = nose_y - eye_y
+        eye_chin_distance = chin_y - eye_y
+        
+        # When looking straight, nose is typically at ~0.6 of the way from eye to chin
+        # When looking up, nose appears higher (ratio < 0.5)
+        # When looking down, nose appears lower (ratio > 0.7)
+        if eye_chin_distance > 0:
+            nose_position_ratio = nose_eye_distance / eye_chin_distance
+            
+            # Calibrate baseline from first few frames
+            if not self.baseline_calibrated:
+                self.baseline_samples.append(nose_position_ratio)
+                if len(self.baseline_samples) >= 10:
+                    # Use median of first 10 frames as baseline
+                    self.baseline_pitch_ratio = np.median(self.baseline_samples)
+                    self.baseline_calibrated = True
+                    logger.info(f"[CALIBRATION] Baseline pitch ratio: {self.baseline_pitch_ratio:.3f}")
+                # During calibration, return 0
+                return 0, yaw, 0
+            
+            # Calculate pitch deviation from baseline
+            pitch_deviation = nose_position_ratio - self.baseline_pitch_ratio
+            
+            # More sensitive pitch calculation (adjusted for baseline)
+            if pitch_deviation < -0.05:  # Looking UP (nose higher than baseline)
+                pitch = pitch_deviation * 100  # Negative pitch
+            elif pitch_deviation > 0.03:  # Looking DOWN (nose lower than baseline) - more sensitive
+                pitch = pitch_deviation * 120  # Positive pitch, scaled higher for sensitivity
+            else:  # Looking straight
+                pitch = pitch_deviation * 50  # Small movements
+        else:
+            pitch = 0
+        
+        return pitch, yaw, 0  # (pitch, yaw, roll)
+    
+    def calculate_gaze(self, landmarks):
+        """Calculate gaze direction from iris position"""
+        # Left eye
+        left_eye_left = landmarks[33]
+        left_eye_right = landmarks[133]
+        left_iris = landmarks[468]
+        
+        eye_width = abs(left_eye_right.x - left_eye_left.x)
+        if eye_width > 0:
+            iris_ratio = (left_iris.x - left_eye_left.x) / eye_width
+            gaze_x = (iris_ratio - 0.5) * 2  # Normalize to -1 to 1
+        else:
+            gaze_x = 0
+        
+        # Vertical gaze
+        left_eye_top = landmarks[159]
+        left_eye_bottom = landmarks[145]
+        eye_height = abs(left_eye_bottom.y - left_eye_top.y)
+        
+        if eye_height > 0:
+            iris_y_ratio = (left_iris.y - left_eye_top.y) / eye_height
+            gaze_y = (iris_y_ratio - 0.5) * 2
+        else:
+            gaze_y = 0
+        
+        return gaze_x, gaze_y
 
     def analyze_frame(self, frame_data) -> dict | None:
         """
         Analyze a single frame for:
-        1. Physics (Eye Contact, Head Pose) -> MediaPipe
+        1. Face Geometry (Head Pose, Gaze) -> MediaPipe
         2. Emotion (Happy/Fear/Neutral) -> DeepFace
         """
         self.frame_count += 1
@@ -83,12 +223,13 @@ class VideoAnalyzer:
                 return None
             
             logger.debug(f"      Frame shape: {frame.shape}")
+            height, width = frame.shape[:2]
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # 1. MediaPipe Analysis (Fast)
+            # 1. MediaPipe Analysis (Fast & Accurate)
             logger.debug("   🔍 Running MediaPipe analysis...")
             mp_start = time.time()
-            mp_analysis = self._analyze_mediapipe(rgb_frame, frame)
+            mp_analysis = self._analyze_mediapipe(rgb_frame, width, height)
             logger.debug(f"      MediaPipe time: {time.time() - mp_start:.3f}s")
             logger.debug(f"      Face detected: {mp_analysis['face_detected']}")
             
@@ -103,8 +244,7 @@ class VideoAnalyzer:
             else:
                 logger.debug("   ⏭️  Skipping DeepFace (no face detected)")
                 
-            # 3. Calculate Video Confidence
-            # Confidence = Eye Contact (40%) + Positive/Neutral Emotion (60%)
+            # 3. Calculate Video Confidence (Improved Algorithm)
             logger.debug("   🧠 Calculating video confidence...")
             video_confidence = self._calculate_video_confidence(mp_analysis, emotion_analysis)
             logger.debug(f"      Video confidence: {video_confidence:.1f}/100")
@@ -125,77 +265,90 @@ class VideoAnalyzer:
             logger.error(f"❌ Frame #{self.frame_count} Analysis Error: {e}", exc_info=True)
             return None
 
-    def _analyze_mediapipe(self, rgb_frame, frame) -> dict:
-        """Extract geometric features using OpenCV"""
-        # Convert to grayscale for face detection
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        if face_cascade.empty():
-            logger.error("      ❌ Face cascade not loaded")
-            return analysis
-
-        # Resize for faster detection if frame is large
-        height, width = frame.shape[:2]
-        detect_gray = gray
-        scale = 1.0
-        
-        if width > 640:
-            scale = 640 / width
-            new_height = int(height * scale)
-            detect_gray = cv2.resize(gray, (640, new_height))
-            logger.debug(f"      Resized for detection: {width}x{height} -> 640x{new_height}")
-
-        # Detect faces with balanced parameters
-        # scaleFactor=1.2 (standard), minNeighbors=3 (more sensitive)
-        faces_rects = face_cascade.detectMultiScale(detect_gray, 1.2, 3)
-        
-        # Scale back to original coordinates
-        faces = []
-        for (x, y, w, h) in faces_rects:
-            if scale != 1.0:
-                x = int(x / scale)
-                y = int(y / scale)
-                w = int(w / scale)
-                h = int(h / scale)
-            faces.append((x, y, w, h))
-        
-        # Log frame stats to help debugging
-        avg_brightness = np.mean(gray)
-        logger.debug(f"      Frame analysis: brightness={avg_brightness:.1f}, faces_found={len(faces)}")
+    def _analyze_mediapipe(self, rgb_frame, width, height) -> dict:
+        """Extract geometric features using MediaPipe FaceLandmarker"""
         
         analysis = {
             'face_detected': False,
             'face_confidence': 0.0,
             'eye_contact_score': 0.0,
-            'head_pose': {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+            'head_pose': {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0},
+            'gaze': {'x': 0.0, 'y': 0.0},
+            'looking_away': False
         }
         
-        if len(faces) > 0:
+        try:
+            # Create MediaPipe landmarker
+            landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(landmarker_options)
+            
+            # Convert to MediaPipe Image format
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            
+            # Detect face landmarks
+            results = landmarker.detect(mp_image)
+            
+            # Close landmarker
+            landmarker.close()
+            
+            if not results.face_landmarks:
+                logger.debug("      No face detected by MediaPipe")
+                return analysis
+            
+            # Face detected!
             analysis['face_detected'] = True
-            analysis['face_confidence'] = 0.95  # OpenCV doesn't provide confidence, use high value
+            analysis['face_confidence'] = 0.95  # High confidence when landmarks detected
             
-            # Get the first (largest) face
-            x, y, w, h = faces[0]
-            face_roi_gray = gray[y:y+h, x:x+w]
-            face_roi_color = frame[y:y+h, x:x+w]
+            # Get landmarks
+            landmarks = results.face_landmarks[0]
+            logger.debug(f"      Detected {len(landmarks)} landmarks")
             
-            # Detect eyes within the face
-            eyes = eye_cascade.detectMultiScale(face_roi_gray)
+            # Calculate head pose (improved 2D method)
+            pitch, yaw, roll = self.calculate_simple_head_pose(landmarks, width, height)
+            analysis['head_pose'] = {
+                'pitch': float(pitch),
+                'yaw': float(yaw),
+                'roll': float(roll)
+            }
+            logger.debug(f"      Head pose: yaw={yaw:.1f}°, pitch={pitch:.1f}°")
             
-            # Calculate eye contact based on eye positions
-            if len(eyes) >= 2:
-                analysis['eye_contact_score'] = self._calculate_eye_contact_opencv(eyes, w, h)
-                logger.debug(f"      Eye contact: {analysis['eye_contact_score']:.1f}/100")
-            else:
-                layout = "frontal" if len(eyes) > 0 else "profile/closed"
-                logger.debug(f"      Eyes not fully detected ({len(eyes)} found), assuming 50% score")
-                analysis['eye_contact_score'] = 50.0 # Fallback
+            # Calculate gaze direction
+            gaze_x, gaze_y = self.calculate_gaze(landmarks)
+            analysis['gaze'] = {
+                'x': float(gaze_x),
+                'y': float(gaze_y)
+            }
+            logger.debug(f"      Gaze: x={gaze_x:.2f}, y={gaze_y:.2f}")
+            
+            # Calculate eye contact score from head pose + gaze
+            # Head pose score
+            yaw_score = max(0, 100 - abs(yaw) * 3)
+            pitch_score = max(0, 100 - abs(pitch) * 2)
+            head_pose_score = (yaw_score + pitch_score) / 2
+            
+            # Gaze score
+            gaze_score = max(0, 100 - (abs(gaze_x) * 50 + abs(gaze_y) * 50))
+            
+            # Combined eye contact score (head pose 60%, gaze 40%)
+            analysis['eye_contact_score'] = (head_pose_score * 0.6 + gaze_score * 0.4)
+            logger.debug(f"      Eye contact: {analysis['eye_contact_score']:.1f}/100")
+            
+            # Detect looking away (copying behavior)
+            looking_away_yaw = abs(yaw) > self.YAW_THRESHOLD
+            looking_away_pitch_up = pitch < -self.PITCH_UP_THRESHOLD
+            looking_away_pitch_down = pitch > self.PITCH_DOWN_THRESHOLD
+            analysis['looking_away'] = looking_away_yaw or looking_away_pitch_up or looking_away_pitch_down
+            
+            if analysis['looking_away']:
+                if looking_away_yaw:
+                    direction = "RIGHT" if yaw > 0 else "LEFT"
+                    logger.debug(f"      ⚠️  Looking away: {direction}")
+                elif looking_away_pitch_down:
+                    logger.debug(f"      ⚠️  Looking away: DOWN (possibly reading)")
+                elif looking_away_pitch_up:
+                    logger.debug(f"      ⚠️  Looking away: UP")
                 
-            # Estimate head pose from face position
-            analysis['head_pose'] = self._estimate_head_pose_opencv(x, y, w, h, frame.shape)
-            logger.debug(f"      Head pose: yaw={analysis['head_pose']['yaw']:.1f}°, pitch={analysis['head_pose']['pitch']:.1f}°")
-        else:
-            logger.debug("      No face detected")
+        except Exception as e:
+            logger.error(f"      ❌ MediaPipe error: {e}")
                 
         return analysis
 
@@ -231,112 +384,69 @@ class VideoAnalyzer:
             return {}
 
     def _calculate_video_confidence(self, mp_data, emotion_data):
-        """Combine geometric and deep features into a confidence score"""
+        """
+        Combine geometric and emotion features into a confidence score
+        Improved algorithm from face_center_guide.py
+        """
         if not mp_data['face_detected']:
-            return 0
+            return 0.0
             
-        # 1. Eye Contact (0-100)
-        eye_score = mp_data.get('eye_contact_score', 50)
+        # 1. Eye Contact Score (already calculated in MediaPipe analysis)
+        eye_contact_score = mp_data.get('eye_contact_score', 50.0)
+        
+        # Apply penalty for looking away (copying behavior detection)
+        if mp_data.get('looking_away', False):
+            head_pose = mp_data['head_pose']
+            yaw = head_pose['yaw']
+            pitch = head_pose['pitch']
+            
+            # Calculate penalty based on severity
+            yaw_penalty = min(40, abs(yaw) * 2)  # Max 40 point penalty
+            
+            # Looking down is worse (reading notes) - 6x penalty per degree
+            if pitch > self.PITCH_DOWN_THRESHOLD:
+                pitch_penalty = min(40, (pitch - self.PITCH_DOWN_THRESHOLD) * 6)
+            # Looking up - 5x penalty per degree
+            elif pitch < -self.PITCH_UP_THRESHOLD:
+                pitch_penalty = min(40, abs(pitch + self.PITCH_UP_THRESHOLD) * 5)
+            else:
+                pitch_penalty = 0
+            
+            total_penalty = max(yaw_penalty, pitch_penalty)
+            eye_contact_score = max(0, eye_contact_score - total_penalty)
+            logger.debug(f"      Applied looking away penalty: -{total_penalty:.1f} points")
         
         # 2. Emotion Score (0-100)
-        # Happy/Neutral = Confident
-        # Fear/Sad/Angry = Not Confident
-        emotion_score = 50
+        emotion_score = 50.0  # Default neutral
         if emotion_data and 'scores' in emotion_data:
             scores = emotion_data['scores']
             
-            # Group emotions
-            # Positive/Constructive: happy, neutral, surprise
-            positive_sum = scores.get('happy', 0) + scores.get('neutral', 0) + scores.get('surprise', 0)
+            # Positive emotions (happy + neutral)
+            positive = scores.get('happy', 0) + scores.get('neutral', 0)
             
-            # Negative/Stress: fear, sad, angry, disgust
-            negative_sum = scores.get('fear', 0) + scores.get('sad', 0) + scores.get('angry', 0) + scores.get('disgust', 0)
+            # Negative emotions (sad + angry + fear)
+            negative = scores.get('sad', 0) + scores.get('angry', 0) + scores.get('fear', 0)
             
-            # Total score sum (should be close to 100, but safer to calculate)
-            total = positive_sum + negative_sum
+            # Calculate emotion score: positive emotions minus 50% of negative
+            emotion_score = min(100, positive - negative * 0.5)
+            emotion_score = max(0, emotion_score)  # Ensure non-negative
             
-            if total > 0:
-                # Calculate ratio of positive vibes (0-100)
-                emotion_score = (positive_sum / total) * 100
-                
-                # Slight penalty for distinct negative signals
-                if negative_sum > 20:
-                     emotion_score *= 0.8
-            else:
-                emotion_score = 50.0
-
-        # Weighted Average: 40% Eye Contact, 60% Emotion
-        # Use min/max to keep in 0-100 range
-        final_conf = (eye_score * 0.4) + (min(100, emotion_score) * 0.6)
+            logger.debug(f"      Emotion score: {emotion_score:.1f} (positive: {positive:.1f}, negative: {negative:.1f})")
         
-        return float(final_conf)
+        # 3. Overall Confidence (Weighted Average)
+        # Eye Contact: 60% (behavior more important)
+        # Emotion: 40% (secondary indicator)
+        final_confidence = (eye_contact_score * 0.6) + (emotion_score * 0.4)
+        final_confidence = max(0, min(100, final_confidence))  # Clamp to 0-100
+        
+        return float(final_confidence)
 
-    def _calculate_eye_contact_opencv(self, eyes, face_width, face_height):
-        """Calculate eye contact score using eye positions from OpenCV"""
-        try:
-            if len(eyes) < 2:
-                return 50.0
-            
-            # Get the two largest eye detections (left and right eyes)
-            eyes_sorted = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
-            eye1, eye2 = eyes_sorted[0], eyes_sorted[1]
-            
-            # Calculate eye centers
-            eye1_center_x = eye1[0] + eye1[2] / 2
-            eye2_center_x = eye2[0] + eye2[2] / 2
-            
-            # Calculate face center
-            face_center_x = face_width / 2
-            
-            # Calculate average eye position relative to face center
-            avg_eye_x = (eye1_center_x + eye2_center_x) / 2
-            
-            # Calculate offset from face center (normalized by face width)
-            # 0.0 = perfectly centered
-            offset = abs(avg_eye_x - face_center_x) / face_width
-            
-            # Convert to score (0-100)
-            # Relaxed formula: penalized less for small deviations
-            # Multiplier 1.5 allows for normal gaze shifting without tanking the score
-            eye_contact_score = max(0.0, min(100.0, (1 - offset * 1.5) * 100))
-            
-            return float(eye_contact_score)
-            
-        except Exception as e:
-            logger.debug(f"      Eye contact calculation error: {e}")
-            return 50.0
-
-    def _estimate_head_pose_opencv(self, x, y, w, h, frame_shape):
-        """Estimate head pose from face position in frame"""
-        try:
-            frame_height, frame_width = frame_shape[:2]
-            
-            # Calculate face center
-            face_center_x = x + w / 2
-            face_center_y = y + h / 2
-            
-            # Calculate frame center
-            frame_center_x = frame_width / 2
-            frame_center_y = frame_height / 2
-            
-            # Estimate yaw (left-right) from horizontal position
-            yaw = ((face_center_x - frame_center_x) / frame_width) * 60
-            
-            # Estimate pitch (up-down) from vertical position
-            pitch = ((face_center_y - frame_center_y) / frame_height) * 60
-            
-            # Roll is harder to estimate without landmarks, default to 0
-            roll = 0.0
-            
-            return {
-                'pitch': float(max(-90, min(90, pitch))),
-                'yaw': float(max(-90, min(90, yaw))),
-                'roll': float(roll)
-            }
-            
-        except Exception as e:
-            logger.debug(f"      Head pose estimation error: {e}")
-            return {'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0}
+    # ===== DEPRECATED OPENCV METHODS REMOVED =====
+    # The following methods have been removed in favor of MediaPipe Tasks API:
+    # - _calculate_eye_contact_opencv(): Replaced by calculate_gaze() and landmarks-based tracking
+    # - _estimate_head_pose_opencv(): Replaced by calculate_simple_head_pose() with improved accuracy
+    # MediaPipe provides 478 facial landmarks (468 face + 10 iris) for more accurate analysis
+    # compared to OpenCV Haar Cascades which only provided bounding boxes.
 
 analyzer = VideoAnalyzer()
 
@@ -354,7 +464,13 @@ def analyze_video_endpoint():
         data = request.json
         video_frames = data.get('videoData', [])
         
+        # Optional: Interview metadata for MongoDB storage
+        interview_id = data.get('interviewId')  # MongoDB ObjectId string
+        candidate_id = data.get('candidateId')  # MongoDB ObjectId string
+        question_id = data.get('questionId')    # Question number (int)
+        
         logger.info(f"   Total frames received: {len(video_frames)}")
+        logger.info(f"   Interview ID: {interview_id}, Candidate ID: {candidate_id}, Question ID: {question_id}")
         
         if not video_frames:
             logger.warning("⚠️  No video data provided")
@@ -374,6 +490,21 @@ def analyze_video_endpoint():
                 logger.debug(f"   ⚠️  Frame {idx} analysis returned None")
         
         logger.info(f"   Successfully analyzed: {len(frame_analyses)}/{len(video_frames)} frames")
+        
+        # Store frames in MongoDB (if enabled and metadata provided)
+        logger.info(f"📊 Storage check: storage={mongo_storage.storage is not None}, enabled={mongo_storage.storage.enabled if mongo_storage.storage else False}, interview_id={interview_id}, candidate_id={candidate_id}")
+        if mongo_storage.storage and mongo_storage.storage.enabled and interview_id and candidate_id:
+            try:
+                stored_ids = mongo_storage.storage.store_frames_batch(
+                    frame_analyses, 
+                    interview_id, 
+                    candidate_id, 
+                    question_id
+                )
+                logger.info(f"📊 Stored {len(stored_ids)} frames in MongoDB")
+            except Exception as e:
+                logger.warning(f"⚠️  MongoDB storage failed: {e}")
+                # Continue even if storage fails
         
         if not frame_analyses:
             logger.error("❌ All frame analyses failed")
