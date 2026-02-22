@@ -1,12 +1,19 @@
 """
 Unified Flask Application Launcher for Video and Audio Analysis Services
 Supports running either service individually or both simultaneously
+
+REFACTORED VERSION - Compatible with reorganized project structure
 """
 
 import os
 import sys
 import logging
 from threading import Thread
+from pathlib import Path
+
+# Add python-services directory to path for imports
+python_services_root = Path(__file__).parent
+sys.path.insert(0, str(python_services_root))
 
 # Configure logging
 logging.basicConfig(
@@ -18,10 +25,10 @@ logger = logging.getLogger(__name__)
 def run_video_service(port=8001):
     """Run the video analysis service."""
     logger.info(f"Starting Video Analysis Service on port {port}...")
-    os.environ['PORT'] = str(port)
+    os.environ['VIDEO_SERVICE_PORT'] = str(port)
     
-    # Import and run video analysis
-    import video_analysis
+    # Import from refactored structure
+    from services.video_service import video_analysis
     video_analysis.app.run(
         host='0.0.0.0',
         port=port,
@@ -32,10 +39,10 @@ def run_video_service(port=8001):
 def run_audio_service(port=8002):
     """Run the audio analysis service."""
     logger.info(f"Starting Audio Analysis Service on port {port}...")
-    os.environ['PORT'] = str(port)
+    os.environ['AUDIO_SERVICE_PORT'] = str(port)
     
-    # Import and run audio analysis
-    import audio_analysis
+    # Import from refactored structure
+    from services.audio_service import audio_analysis
     audio_analysis.app.run(
         host='0.0.0.0',
         port=port,
