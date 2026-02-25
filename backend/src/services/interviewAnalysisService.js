@@ -141,27 +141,41 @@ const analyzeCompletedInterview = async (interviewId) => {
  */
 const analyzeVideo = async (videoUrl) => {
   try {
-    console.log(`🔍 Checking video analysis service at: ${VIDEO_ANALYSIS_SERVICE}`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`🎬 VIDEO ANALYSIS - Legacy Method`);
+    console.log(`${'='.repeat(70)}`);
+    console.log(`   Service URL: ${VIDEO_ANALYSIS_SERVICE}`);
+    console.log(`   Video URL: ${videoUrl}`);
+    console.log(`${'='.repeat(70)}\n`);
     
-    // Check if video analysis service is available
-    if (!VIDEO_ANALYSIS_SERVICE || VIDEO_ANALYSIS_SERVICE.includes('localhost')) {
-      console.warn('⚠️ Video Analysis Service not configured or running on localhost');
-      console.warn('🚨 USING MOCK DATA - To enable real analysis, start video-analysis service');
+    // Check if video analysis service is configured
+    if (!VIDEO_ANALYSIS_SERVICE) {
+      console.error('❌ VIDEO_ANALYSIS_URL not configured in environment');
+      console.warn('🚨 USING MOCK DATA');
       return getMockVideoAnalysis();
     }
 
-    console.log('🚀 Sending video to analysis service...');
+    console.log('🚀 Sending video URL to analysis service...');
     const response = await axios.post(
       `${VIDEO_ANALYSIS_SERVICE}/analyze-video`,
       { videoUrl },
       { timeout: 300000 } // 5 minute timeout
     );
 
-    console.log('✅ Real video analysis completed successfully');
+    console.log(`\n✅ VIDEO ANALYSIS SUCCESS`);
+    console.log(`   Score: ${response.data.overallVideoScore || 0}/100`);
+    console.log(`${'='.repeat(70)}\n`);
+    
     return response.data;
 
   } catch (error) {
-    console.error('❌ Video analysis service error:', error.message);
+    console.error(`\n❌ VIDEO ANALYSIS FAILED`);
+    console.error(`   Error: ${error.message}`);
+    if (error.response) {
+      console.error(`   Status: ${error.response.status}`);
+      console.error(`   Response: ${JSON.stringify(error.response.data)}`);
+    }
+    console.error(`${'='.repeat(70)}\n`);
     console.warn('🚨 FALLING BACK TO MOCK DATA');
     return getMockVideoAnalysis();
   }
@@ -172,27 +186,42 @@ const analyzeVideo = async (videoUrl) => {
  */
 const analyzeAudio = async (videoUrl) => {
   try {
-    console.log(`🔍 Checking audio analysis service at: ${AUDIO_ANALYSIS_SERVICE}`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`🎤 AUDIO ANALYSIS - Legacy Method`);
+    console.log(`${'='.repeat(70)}`);
+    console.log(`   Service URL: ${AUDIO_ANALYSIS_SERVICE}`);
+    console.log(`   Video URL: ${videoUrl}`);
+    console.log(`${'='.repeat(70)}\n`);
     
-    // Check if audio analysis service is available
-    if (!AUDIO_ANALYSIS_SERVICE || AUDIO_ANALYSIS_SERVICE.includes('localhost')) {
-      console.warn('⚠️ Audio Analysis Service not configured or running on localhost');
-      console.warn('🚨 USING MOCK DATA - To enable real analysis, start audio-analysis service');
+    // Check if audio analysis service is configured
+    if (!AUDIO_ANALYSIS_SERVICE) {
+      console.error('❌ AUDIO_ANALYSIS_URL not configured in environment');
+      console.warn('🚨 USING MOCK DATA');
       return getMockAudioAnalysis();
     }
 
-    console.log('🚀 Sending audio to analysis service...');
+    console.log('🚀 Sending video URL for audio extraction and analysis...');
     const response = await axios.post(
       `${AUDIO_ANALYSIS_SERVICE}/analyze-audio`,
       { videoUrl },
       { timeout: 300000 } // 5 minute timeout
     );
 
-    console.log('✅ Real audio analysis completed successfully');
+    console.log(`\n✅ AUDIO ANALYSIS SUCCESS`);
+    console.log(`   Voice Confidence: ${response.data.voice_confidence || 0}/100`);
+    console.log(`   Overall Score: ${response.data.overall_score || 0}/100`);
+    console.log(`${'='.repeat(70)}\n`);
+    
     return response.data;
 
   } catch (error) {
-    console.error('❌ Audio analysis service error:', error.message);
+    console.error(`\n❌ AUDIO ANALYSIS FAILED`);
+    console.error(`   Error: ${error.message}`);
+    if (error.response) {
+      console.error(`   Status: ${error.response.status}`);
+      console.error(`   Response: ${JSON.stringify(error.response.data)}`);
+    }
+    console.error(`${'='.repeat(70)}\n`);
     console.warn('🚨 FALLING BACK TO MOCK DATA');
     return getMockAudioAnalysis();
   }

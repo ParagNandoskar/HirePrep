@@ -96,11 +96,12 @@ class GeminiVoiceService {
   /**
    * Submit candidate's answer with behavioral analysis data
    */
-  async submitAnswer(sessionId, answerText, videoFrames = [], audioChunks = [], questionNumber = 0, candidateId = null) {
+  async submitAnswer(sessionId, answerText, questionText = '', videoFrames = [], audioChunks = [], questionNumber = 0, candidateId = null) {
     try {
       const payload = {
         sessionId,
-        answerText
+        answerText,
+        questionText
       };
 
       // Add behavioral data if available

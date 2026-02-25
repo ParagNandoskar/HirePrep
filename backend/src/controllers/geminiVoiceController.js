@@ -2,6 +2,7 @@ const geminiVoiceService = require('../services/geminiVoiceService');
 const behavioralAnalysisService = require('../services/behavioralAnalysisService');
 const videoUploadService = require('../services/videoUploadService');
 const Application = require('../models/Application');
+const interviewAggregationService = require('../services/interviewAggregationService');
 
 /**
  * Initialize a new AI voice interview
@@ -80,6 +81,7 @@ exports.submitAnswer = async (req, res) => {
     const {
       sessionId,
       answerText,
+      questionText,
       videoFrames,
       audioChunks,
       videoBlob,
@@ -91,7 +93,30 @@ exports.submitAnswer = async (req, res) => {
       return res.status(400).json({ error: 'Session ID and answer text are required' });
     }
 
+    let videoAnalysis = null;
+    let audioAnalysis = null;
     let behavioralData = null;
+
+    // Run video + audio analysis in parallel if data was provided
+    if ((videoFrames && videoFrames.length > 0) || (audioChunks && audioChunks.length > 0)) {
+      console.log(`🔬 Running parallel behavioral analysis: ${videoFrames?.length || 0} frames, ${audioChunks?.length || 0} audio chunks`);
+
+      const [videoResult, audioResult] = await Promise.allSettled([
+        videoFrames?.length > 0
+          ? behavioralAnalysisService.analyzeVideo(videoFrames, sessionId)
+          : Promise.resolve(null),
+        audioChunks?.length > 0
+          ? behavioralAnalysisService.analyzeAudioChunks(audioChunks, sessionId, answerText)
+          : Promise.resolve(null)
+      ]);
+
+      videoAnalysis = videoResult.status === 'fulfilled' ? videoResult.value : null;
+      audioAnalysis = audioResult.status === 'fulfilled' ? audioResult.value : null;
+
+      if (videoResult.status === 'rejected') console.warn('⚠️ Video analysis failed:', videoResult.reason?.message);
+      if (audioResult.status === 'rejected') console.warn('⚠️ Audio analysis failed:', audioResult.reason?.message);
+    }
+
     // Combine behavioral scores
     try {
       if (videoAnalysis || audioAnalysis) {
@@ -107,28 +132,48 @@ exports.submitAnswer = async (req, res) => {
         });
       }
     } catch (error) {
-      console.warn('⚠️ Behavioral analysis failed, using defaults:', error.message);
-      // Continue without behavioral data
+      console.warn('⚠️ Behavioral analysis combine failed, using defaults:', error.message);
     }
 
+    // Persist per-question analysis to MongoDB (used for final score aggregation)
+    const candidateIdFromAuth = req.user?._id || req.user?.id || candidateId || null;
+    await interviewAggregationService.saveQuestionAnalysis(
+      sessionId,
+      questionNumber || 0,
+      questionText || '',
+      answerText,
+      videoAnalysis,
+      audioAnalysis,
+      candidateIdFromAuth
+    );
+
     // Optional: Upload video to S3 for record keeping
-    if (videoBlob && candidateId && questionNumber) {
+    if (videoBlob && candidateIdFromAuth && questionNumber) {
       try {
         const videoBuffer = Buffer.from(videoBlob, 'base64');
-        await videoUploadService.uploadVideo(videoBuffer, candidateId, sessionId, questionNumber);
+        await videoUploadService.uploadVideo(videoBuffer, candidateIdFromAuth, sessionId, questionNumber);
         console.log('✅ Video uploaded to S3');
       } catch (error) {
         console.warn('⚠️ Video upload failed:', error.message);
-        // Continue without video upload
       }
     }
 
-    // Process answer with behavioral data
-    const result = await geminiVoiceService.processAnswer(sessionId, answerText, behavioralData);
+    // Process answer in Gemini session context
+    // If the in-memory session is gone (e.g. backend restart), we still return success
+    // so the interview can continue — behavioral data is already persisted to MongoDB
+    let result = { success: true, message: 'Answer recorded' };
+    try {
+      result = await geminiVoiceService.processAnswer(sessionId, answerText, behavioralData);
+    } catch (sessionErr) {
+      console.warn('⚠️ Gemini session not found in memory (may have restarted):', sessionErr.message);
+      // Non-fatal — behavioral data is saved to MongoDB; interview can continue
+    }
 
     res.json({
       ...result,
-      behavioralData: behavioralData || { message: 'No behavioral analysis performed' }
+      videoScore:  videoAnalysis?.videoScore || 0,
+      audioScore:  audioAnalysis?.audioScore || 0,
+      behavioralData: behavioralData || null
     });
   } catch (error) {
     console.error('Error submitting answer:', error);
@@ -162,32 +207,32 @@ exports.completeInterview = async (req, res) => {
     if (applicationId) {
       console.log(`💾 Updating application ${applicationId}...`);
 
-      // Get conversation history to count questions AND save transcript
-      const context = await geminiVoiceService.getInterviewProgress(sessionId);
-      const questionsAnswered = context ? context.conversationHistory.filter(h => h.type === 'candidate_answer').length : 0;
+      // Build transcript — prefer in-memory session; fall back to MongoDB QuestionAnalysis
+      const context = geminiVoiceService.getInterviewProgress(sessionId);
+      let transcript = [];
+      let questionsAnswered = 0;
 
-      // Build transcript from conversation history
-      const transcript = [];
-      if (context && context.conversationHistory) {
+      if (context && context.conversationHistory && context.conversationHistory.length > 0) {
         let questionNumber = 0;
         context.conversationHistory.forEach(item => {
           if (item.type === 'ai_question') {
             questionNumber++;
-            transcript.push({
-              type: 'question',
-              content: item.content,
-              timestamp: item.timestamp,
-              questionNumber: questionNumber
-            });
+            transcript.push({ type: 'question', content: item.content, timestamp: item.timestamp, questionNumber });
           } else if (item.type === 'candidate_answer') {
-            transcript.push({
-              type: 'answer',
-              content: item.content,
-              timestamp: item.timestamp,
-              questionNumber: questionNumber
-            });
+            transcript.push({ type: 'answer', content: item.content, timestamp: item.timestamp, questionNumber });
           }
         });
+        questionsAnswered = context.conversationHistory.filter(h => h.type === 'candidate_answer').length;
+      } else {
+        // Session was lost (e.g. nodemon restart) — rebuild from MongoDB
+        console.warn('⚠️ Session not in memory — building transcript from QuestionAnalysis docs');
+        const QuestionAnalysis = require('../models/QuestionAnalysis');
+        const qaDocs = await QuestionAnalysis.find({ sessionId }).sort({ questionNumber: 1 }).lean();
+        qaDocs.forEach(q => {
+          if (q.questionText) transcript.push({ type: 'question', content: q.questionText, questionNumber: q.questionNumber });
+          if (q.answerText)   transcript.push({ type: 'answer',   content: q.answerText,   questionNumber: q.questionNumber });
+        });
+        questionsAnswered = qaDocs.length;
       }
 
       console.log(`📝 Saving interview transcript with ${transcript.length} entries (${questionsAnswered} Q&A pairs)`);

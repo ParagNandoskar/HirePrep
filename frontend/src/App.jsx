@@ -34,7 +34,7 @@ const App = () => {
   return (
     <AuthProvider>
       <AppProvider>
-        <Router>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             {/* Public routes with main layout */}
             <Route path="/" element={

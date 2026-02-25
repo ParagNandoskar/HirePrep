@@ -46,23 +46,25 @@ const AIVoiceInterview = () => {
   const canvasRef = useRef(null)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [isSpeechMuted, setIsSpeechMuted] = useState(false)
+  const cameraInitializedRef = useRef(false)
 
-  // Debug: Log video element state
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (videoRef.current) {
-        console.log('🎥 Video Debug:', {
-          hasStream: !!videoRef.current.srcObject,
-          paused: videoRef.current.paused,
-          readyState: videoRef.current.readyState,
-          videoWidth: videoRef.current.videoWidth,
-          videoHeight: videoRef.current.videoHeight
-        })
-      }
-    }, 3000)
-    
-    return () => clearInterval(interval)
-  }, [])
+  // Video debug logging removed - enable only if debugging video issues
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     if (videoRef.current) {
+  //       console.log('🎥 Video Debug:', {
+  //         hasStream: !!videoRef.current.srcObject,
+  //         paused: videoRef.current.paused,
+  //         readyState: videoRef.current.readyState,
+  //         videoWidth: videoRef.current.videoWidth,
+  //         videoHeight: videoRef.current.videoHeight
+  //       })
+  //     }
+  //   }, 3000)
+  //   
+  //   return () => clearInterval(interval)
+  // }, [])
+
 
   useEffect(() => {
     // Redirect if missing required data
@@ -71,17 +73,17 @@ const AIVoiceInterview = () => {
       return
     }
 
+    // Guard against React StrictMode double-invocation
+    if (cameraInitializedRef.current) return
+    cameraInitializedRef.current = true
+
     startCamera()
     initializeInterview()
 
     return () => {
       // Cleanup camera on unmount
       if (stream) {
-        console.log('🧹 Cleaning up camera stream')
-        stream.getTracks().forEach(track => {
-          track.stop()
-          console.log(`Stopped ${track.kind} track`)
-        })
+        stream.getTracks().forEach(track => track.stop())
       }
     }
   }, [])
@@ -99,25 +101,8 @@ const AIVoiceInterview = () => {
         audio: true
       })
       
-      console.log('✅ Camera access granted. Stream tracks:', mediaStream.getTracks().map(t => t.kind))
+      // Setting stream triggers the useEffect that attaches & plays video
       setStream(mediaStream)
-      
-      // CRITICAL: Set video source IMMEDIATELY if ref exists
-      if (videoRef.current) {
-        console.log('📺 Video ref exists - setting srcObject immediately')
-        videoRef.current.srcObject = mediaStream
-        videoRef.current.muted = true
-        videoRef.current.playsInline = true
-        
-        // Try to play
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.play()
-              .then(() => console.log('✅ Video started playing'))
-              .catch(err => console.log('Play attempt:', err.name))
-          }
-        }, 100)
-      }
     } catch (error) {
       console.error('❌ Camera access error:', error)
       setError('Camera access denied. Video recording will be disabled.')
@@ -125,64 +110,34 @@ const AIVoiceInterview = () => {
   }
 
   // Video ref callback - called when video element mounts
+  // Only set srcObject here; playing is handled by the stream useEffect below
   const videoRefCallback = (element) => {
     videoRef.current = element
     
-    if (element && stream) {
-      console.log('📺 Video element mounted with existing stream - assigning now')
+    if (element && stream && !element.srcObject) {
       element.srcObject = stream
       element.muted = true
       element.playsInline = true
-      
-      element.play()
-        .then(() => console.log('✅ Video playing after mount'))
-        .catch(err => console.log('Mount play error:', err.name))
     }
   }
 
-  // Separate effect to handle video stream assignment when ref becomes available
+  // When stream becomes available, attach it to the video element and play
   useEffect(() => {
-    if (stream && videoRef.current && !videoRef.current.srcObject) {
-      console.log('📺 useEffect: Assigning stream to video element')
-      console.log('Stream active:', stream.active, 'Tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`))
-      
-      const videoElement = videoRef.current
-      
-      // Set stream and attributes
+    if (!stream || !videoRef.current) return
+
+    const videoElement = videoRef.current
+    if (videoElement.srcObject !== stream) {
       videoElement.srcObject = stream
       videoElement.muted = true
       videoElement.playsInline = true
-      videoElement.autoplay = true
-      
-      console.log('📊 Video element state:', {
-        srcObject: !!videoElement.srcObject,
-        paused: videoElement.paused,
-        muted: videoElement.muted,
-        autoplay: videoElement.autoplay
-      })
-      
-      // Multiple play attempts
-      const attemptPlay = (delay, label) => {
-        setTimeout(() => {
-          if (videoElement.paused) {
-            console.log(`🎬 ${label} play attempt...`)
-            videoElement.play()
-              .then(() => {
-                console.log(`✅ ${label} play SUCCESS`)
-                setIsVideoPlaying(true)
-              })
-              .catch(err => {
-                console.log(`❌ ${label} play failed:`, err.name, err.message)
-              })
-          }
-        }, delay)
-      }
-      
-      attemptPlay(0, 'Immediate')
-      attemptPlay(100, '100ms')
-      attemptPlay(500, '500ms')
-      attemptPlay(1000, '1000ms')
     }
+
+    videoElement.play()
+      .then(() => setIsVideoPlaying(true))
+      .catch(err => {
+        // Ignore AbortError — a subsequent play() call will succeed
+        if (err.name !== 'AbortError') console.error('Video play error:', err)
+      })
   }, [stream])
 
   const initializeInterview = async () => {
@@ -347,9 +302,11 @@ const AIVoiceInterview = () => {
 
   const startVideoRecording = () => {
     if (!stream) {
-      console.warn('No camera stream available')
+      console.warn('⚠️ [VideoRecording] No camera stream — skipping')
       return
     }
+
+    console.log('🎬 [VideoRecording] startVideoRecording called, stream active:', stream.active)
 
     // Reset arrays for new answer
     setVideoFrames([])
@@ -398,7 +355,11 @@ const AIVoiceInterview = () => {
   }
 
   const startFrameCapture = () => {
-    if (!videoRef.current) return
+    console.log('🔍 [FrameCapture] startFrameCapture called, videoRef.current:', !!videoRef.current)
+    if (!videoRef.current) {
+      console.warn('⚠️ [FrameCapture] videoRef.current is null — frame capture ABORTED')
+      return
+    }
 
     // Create canvas for frame extraction
     if (!canvasRef.current) {
@@ -409,6 +370,10 @@ const AIVoiceInterview = () => {
     const video = videoRef.current
     const ctx = canvas.getContext('2d')
 
+    let frameCount = 0
+    const captureInterval = 2000 // ms
+    console.log(`📹 [FrameCapture] Started — capturing 1 frame every ${captureInterval}ms (${1000/captureInterval * 60} frames/min)`)
+
     // Capture frame every 2 seconds
     frameIntervalRef.current = setInterval(() => {
       if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -418,9 +383,16 @@ const AIVoiceInterview = () => {
         
         // Convert to base64
         const frameData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
-        setVideoFrames(prev => [...prev, frameData])
+        frameCount++
+        setVideoFrames(prev => {
+          const newTotal = prev.length + 1
+          console.log(`📸 [FrameCapture] Frame #${frameCount} captured | Total buffered: ${newTotal} | Size: ${(frameData.length / 1024).toFixed(1)}KB`)
+          return [...prev, frameData]
+        })
+      } else {
+        console.warn(`⚠️ [FrameCapture] Skipped — video not ready (${video.videoWidth}x${video.videoHeight})`)
       }
-    }, 2000)
+    }, captureInterval)
   }
 
   const stopVideoRecording = () => {
@@ -445,14 +417,15 @@ const AIVoiceInterview = () => {
     }
 
     try {
-      console.log(`📊 Submitting with ${videoFrames.length} frames and ${audioChunks.length} audio chunks`)
+      console.log(`📊 [Submit] Sending answer with ${videoFrames.length} frames and ${audioChunksRef.current.length} audio chunks to backend`)
       
       // Submit answer with behavioral data to backend
       await geminiVoiceService.submitAnswer(
-        sessionId, 
-        answerText, 
-        videoFrames, 
-        audioChunks,
+        sessionId,
+        answerText,
+        currentQuestion,         // persist the question text for context reconstruction
+        videoFrames,
+        audioChunksRef.current,  // use ref — always current, not affected by async state lag
         questionNumber,
         user?._id
       )

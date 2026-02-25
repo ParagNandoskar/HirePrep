@@ -1,6 +1,8 @@
 const { getGeminiFlash } = require('../config/gemini');
 const Job = require('../models/Job');
 const googleTTSService = require('./googleTTSService');
+const interviewAggregationService = require('./interviewAggregationService');
+const QuestionAnalysis = require('../models/QuestionAnalysis');
 
 class GeminiVoiceInterviewService {
   constructor() {
@@ -61,9 +63,34 @@ class GeminiVoiceInterviewService {
    */
   async generateNextQuestion(sessionId) {
     try {
-      const context = this.activeInterviews.get(sessionId);
+      let context = this.activeInterviews.get(sessionId);
+
       if (!context) {
-        throw new Error('Invalid session ID');
+        // Session not in memory (e.g. backend restarted or hot-reload).
+        // Reconstruct a minimal context from persisted QuestionAnalysis docs.
+        console.warn(`⚠️ [generateNextQuestion] Session ${sessionId} not in memory — reconstructing from MongoDB`);
+
+        const pastQuestions = await QuestionAnalysis.find({ sessionId })
+          .sort({ questionNumber: 1 })
+          .lean();
+
+        const conversationHistory = pastQuestions.flatMap(q => [
+          { type: 'ai_question', content: q.questionText || `Question ${q.questionNumber}` },
+          { type: 'candidate_answer', content: q.answerText || '' }
+        ]);
+
+        context = {
+          jobTitle: 'Software Engineer',
+          companyName: 'the company',
+          description: 'General software engineering role',
+          requirements: 'Problem-solving, communication, and technical skills',
+          candidateName: 'Candidate',
+          conversationHistory,
+          currentQuestionIndex: pastQuestions.length
+        };
+
+        // Cache it so subsequent calls within this request lifecycle are fast
+        this.activeInterviews.set(sessionId, context);
       }
 
       const model = getGeminiFlash();
@@ -178,7 +205,10 @@ Generate ONLY the question text, no labels or numbers.`;
     try {
       const context = this.activeInterviews.get(sessionId);
       if (!context) {
-        throw new Error('Invalid session ID');
+        // Session not in memory (e.g. backend restarted) — behavioral data
+        // is already persisted to MongoDB by the controller. Non-fatal.
+        console.warn(`⚠️ [processAnswer] Session ${sessionId} not in memory — skipping history update`);
+        return { success: true, message: 'Answer recorded (session not in memory)' };
       }
 
       // Add answer to conversation history with behavioral data
@@ -215,52 +245,64 @@ Generate ONLY the question text, no labels or numbers.`;
 
   /**
    * Generate final analysis and combined score (content + behavioral)
+   * Behavioral scores (video + audio) come from MongoDB aggregation.
+   * Content score comes from Gemini evaluating the full transcript.
+   * Final = 40% content + 30% video + 30% audio
    */
   async generateFinalAnalysis(sessionId) {
     try {
       const context = this.activeInterviews.get(sessionId);
-      if (!context) {
-        throw new Error('Invalid session ID');
+
+      // ── 1. Aggregate video + audio scores from MongoDB ──────────────────
+      const behavioralAgg = await interviewAggregationService.aggregateFinalScores(sessionId);
+      const avgVideoScore = behavioralAgg.videoScore;
+      const avgAudioScore = behavioralAgg.audioScore;
+      const avgBehavioralScore = Math.round((avgVideoScore + avgAudioScore) / 2);
+      const hasCheatingIndicators = behavioralAgg.hasCheatingIndicators;
+
+      console.log(`📊 [FinalAnalysis] MongoDB aggregation: video=${avgVideoScore}, audio=${avgAudioScore}`);
+
+      // ── 2. Build transcript for Gemini content scoring ───────────────────
+      // Use in-memory context if available, otherwise build a minimal prompt
+      let transcriptLines = '';
+      let jobTitle = 'the position';
+      let requirements = 'general professional skills';
+
+      if (context) {
+        jobTitle = context.jobTitle || jobTitle;
+        requirements = Array.isArray(context.requirements)
+          ? context.requirements.join(', ')
+          : (context.requirements || requirements);
+
+        transcriptLines = context.conversationHistory.map(item => {
+          if (item.type === 'ai_question')    return `Interviewer: ${item.content}`;
+          if (item.type === 'candidate_answer') return `Candidate: ${item.content}`;
+          return '';
+        }).filter(Boolean).join('\n');
+      } else {
+        // Session not in memory (backend restart) — pull real Q&A from MongoDB
+        const QuestionAnalysis = require('../models/QuestionAnalysis');
+        const questions = await QuestionAnalysis.find({ sessionId }).sort({ questionNumber: 1 }).lean();
+        transcriptLines = questions.map(q => {
+          const lines = [];
+          if (q.questionText) lines.push(`Interviewer: ${q.questionText}`);
+          if (q.answerText)   lines.push(`Candidate: ${q.answerText}`);
+          return lines.join('\n');
+        }).filter(Boolean).join('\n');
+        console.warn('⚠️ [FinalAnalysis] Session not in memory — using MongoDB transcript');
       }
 
+      // ── 3. Gemini evaluates answer CONTENT (transcript only) ─────────────
       const model = getGeminiFlash();
+      const analysisPrompt = `You are an expert hiring manager analysing an interview for the position of ${jobTitle}.
 
-      // Calculate average behavioral scores from all answers
-      const behavioralScores = context.conversationHistory
-        .filter(item => item.type === 'candidate_answer' && item.behavioralAnalysis)
-        .map(item => item.behavioralAnalysis);
-
-      let avgBehavioralScore = 65; // Default
-      let avgVideoScore = 65;
-      let avgAudioScore = 65;
-      let hasCheatingIndicators = false;
-
-      if (behavioralScores.length > 0) {
-        avgBehavioralScore = behavioralScores.reduce((sum, b) => sum + b.overallBehavioralScore, 0) / behavioralScores.length;
-        avgVideoScore = behavioralScores.reduce((sum, b) => sum + b.videoScore, 0) / behavioralScores.length;
-        avgAudioScore = behavioralScores.reduce((sum, b) => sum + b.audioScore, 0) / behavioralScores.length;
-        
-        // Check for cheating indicators
-        hasCheatingIndicators = behavioralScores.some(b => 
-          b.cheatingIndicators?.multiplePersons || 
-          b.cheatingIndicators?.frequentLookAway ||
-          b.cheatingIndicators?.noFaceDetected
-        );
-      }
-
-      const analysisPrompt = `You are an expert hiring manager analyzing an interview for the position of ${context.jobTitle}.
-
-Job Requirements: ${Array.isArray(context.requirements) ? context.requirements.join(', ') : context.requirements}
+Key Requirements: ${requirements}
 
 Interview Transcript:
-${context.conversationHistory.map(item => {
-  if (item.type === 'ai_question') return `Interviewer: ${item.content}`;
-  if (item.type === 'candidate_answer') return `Candidate: ${item.content}`;
-  return '';
-}).join('\n')}
+${transcriptLines || '(No transcript available)'}
 
 Provide a detailed analysis with:
-1. Overall Content Score (0-100) - Based ONLY on answer quality, technical knowledge, problem solving
+1. Overall Content Score (0-100) — based ONLY on answer quality, technical knowledge, problem solving
 2. Communication Skills Score (0-100)
 3. Technical Knowledge Score (0-100)
 4. Problem Solving Score (0-100)
@@ -270,61 +312,64 @@ Provide a detailed analysis with:
 8. Key Insights
 9. Overall Recommendation (Highly Recommended / Recommended / Consider / Not Recommended)
 
-Format your response as JSON with these exact keys: contentScore, communicationScore, technicalScore, problemSolvingScore, culturalFitScore, strengths (array), improvements (array), insights (string), recommendation (string)`;
+Format your response as JSON with keys: contentScore, communicationScore, technicalScore, problemSolvingScore, culturalFitScore, strengths (array), improvements (array), insights (string), recommendation (string)`;
 
       const result = await model.generateContent(analysisPrompt);
       const response = await result.response;
-      let analysisText = response.text();
-
-      // Clean up the response to extract JSON
-      analysisText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let analysisText = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
       let analysis;
       try {
         analysis = JSON.parse(analysisText);
-      } catch (parseError) {
-        // If JSON parsing fails, create a structured response
-        console.error('Failed to parse analysis JSON:', parseError);
+      } catch {
+        console.error('Failed to parse Gemini JSON — using defaults');
         analysis = {
           contentScore: 75,
           communicationScore: 75,
           technicalScore: 70,
           problemSolvingScore: 75,
           culturalFitScore: 80,
-          strengths: ['Participated in the interview', 'Provided responses to questions'],
-          improvements: ['Could provide more detailed answers', 'Could demonstrate more technical knowledge'],
-          insights: 'The candidate completed the interview and provided responses to the questions asked.',
+          strengths: ['Participated in the interview'],
+          improvements: ['Could provide more detailed answers'],
+          insights: 'The candidate completed the interview and provided responses.',
           recommendation: 'Consider'
         };
       }
 
-      // COMBINE SCORES: 60% Content + 40% Behavioral
-      const contentScore = analysis.contentScore || 75;
-      const finalScore = Math.round((contentScore * 0.6) + (avgBehavioralScore * 0.4));
+      // ── 4. Combine: 40% content + 30% video + 30% audio ─────────────────
+      const contentScore = Math.round(analysis.contentScore || 75);
+      const finalScore = Math.round(
+        (contentScore     * 0.40) +
+        (avgVideoScore    * 0.30) +
+        (avgAudioScore    * 0.30)
+      );
 
-      // Add behavioral data to analysis
-      analysis.overallScore = finalScore;
-      analysis.contentScore = Math.round(contentScore);
-      analysis.behavioralScore = Math.round(avgBehavioralScore);
-      analysis.videoScore = Math.round(avgVideoScore);
-      analysis.audioScore = Math.round(avgAudioScore);
-      
-      // Add behavioral insights
-      if (behavioralScores.length > 0) {
-        analysis.behavioralInsights = {
-          eyeContact: avgVideoScore > 70 ? 'Good' : avgVideoScore > 50 ? 'Moderate' : 'Needs Improvement',
-          confidence: avgAudioScore > 70 ? 'Confident' : avgAudioScore > 50 ? 'Moderate' : 'Nervous',
-          engagement: avgBehavioralScore > 70 ? 'Highly Engaged' : avgBehavioralScore > 50 ? 'Engaged' : 'Low Engagement'
-        };
+      console.log(`🎯 [FinalAnalysis] Scores — content: ${contentScore}, video: ${avgVideoScore}, audio: ${avgAudioScore} → final: ${finalScore}`);
 
-        if (hasCheatingIndicators) {
-          analysis.integrityWarning = '⚠️ Potential integrity concerns detected during the interview';
-          analysis.recommendation = 'Requires Further Review';
-        }
+      analysis.overallScore     = finalScore;
+      analysis.contentScore     = contentScore;
+      analysis.videoScore       = Math.round(avgVideoScore);
+      analysis.audioScore       = Math.round(avgAudioScore);
+      analysis.behavioralScore  = Math.round(avgBehavioralScore);
+
+      // Behavioral insights
+      analysis.behavioralInsights = {
+        eyeContact:  avgVideoScore > 70 ? 'Good'  : avgVideoScore > 50 ? 'Moderate' : 'Needs Improvement',
+        confidence:  avgAudioScore > 70 ? 'Confident' : avgAudioScore > 50 ? 'Moderate' : 'Nervous',
+        engagement:  avgBehavioralScore > 70 ? 'Highly Engaged' : avgBehavioralScore > 50 ? 'Engaged' : 'Low Engagement',
+        questionsWithVideoAnalysis: behavioralAgg.videoQuestionsAnalyzed,
+        questionsWithAudioAnalysis: behavioralAgg.audioQuestionsAnalyzed,
+        breakdown: behavioralAgg.breakdown,
+        emotionDistribution: behavioralAgg.emotionDistribution
+      };
+
+      if (hasCheatingIndicators) {
+        analysis.integrityWarning = '⚠️ Potential integrity concerns detected during the interview';
+        analysis.recommendation   = 'Requires Further Review';
       }
 
-      // Clean up the session
-      this.activeInterviews.delete(sessionId);
+      // Clean up in-memory session
+      if (context) this.activeInterviews.delete(sessionId);
 
       return analysis;
     } catch (error) {

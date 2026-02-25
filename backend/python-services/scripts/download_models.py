@@ -39,27 +39,27 @@ logger = logging.getLogger(__name__)
 SCRIPT_DIR = Path(__file__).parent
 LOCAL_MODELS_DIR = SCRIPT_DIR.parent / "services" / "audio_service" / "local_models"
 
-# Model configurations
+# Model configurations - DEPLOYMENT-OPTIMIZED VERSIONS (~430MB total)
 MODELS_CONFIG = {
     "wav2vec2-emotion": {
         "hub_name": "superb/wav2vec2-base-superb-er",
         "local_path": LOCAL_MODELS_DIR / "wav2vec2-emotion",
         "type": "audio_classification",
-        "description": "Wav2Vec2 model for emotion recognition from speech",
-        "size": "~370MB"
+        "description": "Wav2Vec2 BASE model for emotion recognition (deployment-friendly)",
+        "size": "~95MB"
     },
     "whisper-base": {
-        "hub_name": "openai/whisper-base",
+        "hub_name": "openai/whisper-tiny",
         "local_path": LOCAL_MODELS_DIR / "whisper-base",
         "type": "speech_recognition",
-        "description": "Whisper model for speech-to-text transcription",
-        "size": "~290MB"
+        "description": "Whisper TINY model for speech-to-text (fast & small)",
+        "size": "~75MB"
     },
     "distilbert-sentiment": {
         "hub_name": "distilbert-base-uncased-finetuned-sst-2-english",
         "local_path": LOCAL_MODELS_DIR / "distilbert-sentiment",
         "type": "text_classification",
-        "description": "DistilBERT model for sentiment analysis",
+        "description": "DistilBERT model for sentiment analysis (already optimized)",
         "size": "~260MB"
     }
 }
@@ -254,7 +254,7 @@ def print_summary(results):
         logger.info("  4. For Docker: Models will be copied into image")
         logger.info("")
         logger.info("⚠️  Note: Add audio_service/local_models/ to .gitignore")
-        logger.info("         (Models are large, ~920MB total)")
+        logger.info("         (Models are ~485MB total - optimized for deployment)")
     else:
         logger.error("")
         logger.error("⚠️  Some downloads failed. Check logs above.")
@@ -273,8 +273,8 @@ def main():
     logger.info("\n" + "="*70)
     logger.info("🚀 HuggingFace Model Downloader for Audio Analysis")
     logger.info("="*70)
-    logger.info("This will download ~920MB of models")
-    logger.info("Estimated time: 2-10 minutes (depends on internet speed)")
+    logger.info("This will download ~485MB of TINY models (optimized for deployment)")
+    logger.info("Estimated time: 1-5 minutes (depends on internet speed)")
     logger.info("="*70 + "\n")
     
     # Create directory structure

@@ -723,9 +723,10 @@ const submitScreeningInterview = asyncHandler(async (req, res) => {
 
     await interview.save();
 
-    // Update application with interview details
+    // Update application with interview details  
     application.interviewCompleted = true;
     application.interviewScore = evaluation.overallScore;
+    application.screeningScore = evaluation.overallScore; // Also update screeningScore
     application.status = evaluation.recommendation === 'hire' ? 'reviewing' : 'pending';
     await application.save();
 
@@ -733,7 +734,7 @@ const submitScreeningInterview = asyncHandler(async (req, res) => {
 
     // PHASE 3: Schedule async video/audio analysis (5-10 minutes)
     // This runs in the background and updates the interview when complete
-    scheduleAsyncAnalysis(interview._id);
+    scheduleAsyncAnalysis(interview._id, application._id);
 
     const totalTime = ((Date.now() - startTranscription) / 1000).toFixed(2);
     console.log(`✅ Interview submission complete in ${totalTime}s (analysis scheduled)`);
@@ -754,7 +755,7 @@ const submitScreeningInterview = asyncHandler(async (req, res) => {
         aiEvaluationComplete: true,
         videoAnalysisPending: true,
         audioAnalysisPending: true,
-        estimatedCompletionTime: '5-10 minutes'
+        estimatedCompletionTime: '2-5 minutes'
       }
     }, 'Screening interview submitted successfully. Final analysis in progress.', 201);
 
@@ -768,27 +769,58 @@ const submitScreeningInterview = asyncHandler(async (req, res) => {
  * Schedule async video/audio analysis
  * This runs in background after interview submission
  */
-const scheduleAsyncAnalysis = (interviewId) => {
-  // Import the analysis service (we'll create this next)
+const scheduleAsyncAnalysis = (interviewId, applicationId) => {
+  // Import the analysis service
   const interviewAnalysisService = require('../services/interviewAnalysisService');
+  const analysisService = require('../services/analysisService');
+  const Leaderboard = require('../models/Leaderboard');
   
-  // Run analysis after 5 second delay (to ensure response sent to client)
+  // Run analysis after 2 second delay (to ensure response sent to client)
   setTimeout(async () => {
     try {
       console.log(`🎬 Starting async analysis for interview ${interviewId}`);
-      await interviewAnalysisService.analyzeCompletedInterview(interviewId);
+      
+      // Try new analysis service first (with Python services)
+      let interview = await interviewAnalysisService.analyzeCompletedInterview(interviewId);
+      
+      // Update leaderboard after analysis completes
+      if (interview.analysisComplete) {
+        console.log(`🏆 Updating leaderboard with final scores...`);
+        try {
+          await analysisService.updateLeaderboard(interview);
+          
+          // Also update application screeningScore with final score
+          const Application = require('../models/Application');
+          await Application.findByIdAndUpdate(applicationId, {
+            screeningScore: interview.finalScore || interview.score
+          });
+          
+          console.log(`✅ Leaderboard updated successfully`);
+        } catch (leaderboardError) {
+          console.error(`⚠️ Leaderboard update failed (non-critical):`, leaderboardError.message);
+        }
+      }
+      
       console.log(`✅ Async analysis complete for interview ${interviewId}`);
+      console.log(`   Final Score: ${interview.finalScore || interview.score}/100`);
+      
     } catch (error) {
       console.error(`❌ Async analysis failed for interview ${interviewId}:`, error);
       
-      // Mark interview as having analysis error (don't fail completely)
+      // Mark interview as having analysis complete with error (don't leave it pending forever)
       const Interview = require('../models/Interview');
-      await Interview.findByIdAndUpdate(interviewId, {
-        analysisComplete: true,
-        'analysis.error': error.message
-      });
+      const interview = await Interview.findById(interviewId);
+      if (interview && !interview.analysisComplete) {
+        interview.analysisComplete = true;
+        interview.finalScore = interview.preliminaryScore; // Use preliminary score if analysis fails
+        interview.score = interview.preliminaryScore;
+        if (!interview.analysis) interview.analysis = {};
+        interview.analysis.error = error.message;
+        await interview.save();
+        console.log(`⚠️ Marked interview as complete with preliminary score due to analysis error`);
+      }
     }
-  }, 5000); // 5 second delay
+  }, 2000); // 2 second delay
 };
 
 // Get job-specific leaderboard

@@ -27,29 +27,24 @@ class BehavioralAnalysisService {
 
             const analysis = response.data;
 
-            // Use the score directly from the Python service (DeepFace + MediaPipe)
-            const videoScore = analysis.overallVideoScore || 0;
-
             return {
-                rawAnalysis: analysis,
-                videoScore: videoScore,
+                videoScore: analysis.overallVideoScore || 0,
+                framesAnalyzed: analysis.analysisMetadata?.framesAnalyzed || 0,
+                dominantEmotion: analysis.dominantEmotion || 'neutral',
                 metrics: {
-                    eyeContact: analysis.eyeContactScore || 0,
-                    engagement: analysis.engagementScore || 0,
-                    confidence: analysis.confidenceScore || 0,
-                    attentiveness: analysis.eyeContactScore || 0, // Reuse eye contact for now
-                    lookingAway: 100 - (analysis.eyeContactScore || 100), // Infer from eye contact
-                    multiplePersons: false // Not implemented
+                    eyeContact:      analysis.eyeContactScore    || 0,
+                    engagement:      analysis.engagementScore    || 0,
+                    confidence:      analysis.confidenceScore    || 0,
+                    multiplePersons: false
                 },
                 cheatingIndicators: {
-                    multiplePersons: false,
-                    frequentLookAway: (analysis.eyeContactScore || 100) < 50,
-                    noFaceDetected: (analysis.analysisMetadata?.framesAnalyzed || 0) === 0
+                    multiplePersons:    false,
+                    frequentLookAway:   (analysis.eyeContactScore || 100) < 50,
+                    noFaceDetected:     (analysis.analysisMetadata?.framesAnalyzed || 0) === 0
                 }
             };
         } catch (error) {
             console.error('❌ Video analysis error:', error.message);
-            // Return default scores if Python service fails
             return this._getDefaultVideoAnalysis();
         }
     }
@@ -73,7 +68,7 @@ class BehavioralAnalysisService {
 
             const audioBase64 = audioBuffer.toString('base64');
 
-            const response = await axios.post(`${this.audioServiceUrl}/analyze-audio`, {
+            const response = await axios.post(`${AUDIO_ANALYSIS_URL}/analyze-audio`, {
                 interviewId,
                 audioData: [audioBase64],
                 transcript: answerText || "" // Pass transcript for VADER/DistilBERT
@@ -95,14 +90,66 @@ class BehavioralAnalysisService {
             };
 
             return {
-                rawAnalysis: analysis,
-                audioScore: Math.round(metrics.confidence), // Use the hybrid confidence directly
+                audioScore: Math.round(metrics.confidence),
                 metrics: metrics
             };
         } catch (error) {
             console.error('❌ Audio analysis error:', error.message);
             // Return default scores if Python service fails
             return this._getDefaultAudioAnalysis();
+        }
+    }
+
+    /**
+     * Analyze an array of base64 audio chunks (sent from the frontend MediaRecorder)
+     * Concatenates all chunk bytes and sends as a single base64 payload.
+     * @param {Array<string>} audioChunks - Array of base64-encoded webm blobs
+     * @param {string} interviewId
+     * @param {string} transcript - Answer transcript for text analysis
+     */
+    async analyzeAudioChunks(audioChunks, interviewId, transcript = '') {
+        try {
+            if (!audioChunks || audioChunks.length === 0) {
+                throw new Error('No audio chunks provided');
+            }
+
+            console.log(`🎤 Analyzing ${audioChunks.length} audio chunks for interview ${interviewId}...`);
+
+            // Decode each base64 chunk, concatenate raw bytes, re-encode as single base64
+            const buffers = audioChunks.map(chunk => Buffer.from(chunk, 'base64'));
+            const combined = Buffer.concat(buffers);
+            const audio_base64 = combined.toString('base64');
+
+            const response = await axios.post(`${AUDIO_ANALYSIS_URL}/analyze-audio`, {
+                audio_base64,
+                interviewId,
+                transcript
+            }, {
+                timeout: 30000,
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const analysis = response.data;
+            console.log('🎤 Audio analysis result:', JSON.stringify(analysis, null, 2));
+
+            const metrics = {
+                confidence: analysis.voice_confidence || analysis.confidence_score || 0,
+                clarity:    analysis.volume_consistency || analysis.prosody?.clarity || 0,
+                enthusiasm: Math.max(0, 100 - (analysis.nervousness_score || 50)),
+                stability:  analysis.voice_quality?.stability ?? analysis.prosody?.stability ?? 60,
+                sentimentScore: 50,
+                sentimentLabel: 'NEUTRAL'
+            };
+
+            return {
+                audioScore: Math.round(analysis.overall_score || analysis.voice_confidence || 0),
+                metrics
+            };
+        } catch (error) {
+            console.error('❌ Audio chunks analysis error:', error.message);
+            // Re-throw so the controller's Promise.allSettled sets audioAnalysis = null
+            // This keeps audioAnalyzed: false in MongoDB (honest data)
+            throw error;
         }
     }
 
@@ -136,10 +183,6 @@ class BehavioralAnalysisService {
             detailedMetrics: {
                 video: videoAnalysis ? videoAnalysis.metrics : {},
                 audio: audioAnalysis ? audioAnalysis.metrics : {}
-            },
-            rawAnalysis: {
-                video: videoAnalysis ? videoAnalysis.rawAnalysis : null,
-                audio: audioAnalysis ? audioAnalysis.rawAnalysis : null
             },
             recommendations: this._generateRecommendations(videoAnalysis, audioAnalysis)
         };
@@ -250,15 +293,14 @@ class BehavioralAnalysisService {
      */
     _getDefaultVideoAnalysis() {
         return {
-            rawAnalysis: {},
             videoScore: 65,
+            framesAnalyzed: 0,
+            dominantEmotion: 'neutral',
             metrics: {
                 eyeContact: 65,
                 engagement: 60,
                 confidence: 65,
-                attentiveness: 70,
-                multiplePersons: false,
-                lookingAway: 20
+                multiplePersons: false
             },
             cheatingIndicators: {
                 multiplePersons: false,
@@ -274,15 +316,14 @@ class BehavioralAnalysisService {
      */
     _getDefaultAudioAnalysis() {
         return {
-            rawAnalysis: {},
             audioScore: 65,
             metrics: {
-                confidence: 65,
-                clarity: 70,
-                enthusiasm: 60,
-                stressLevel: 40,
-                pace: 'moderate',
-                sentiment: 'neutral'
+                confidence:     65,
+                clarity:        70,
+                enthusiasm:     60,
+                stability:      60,
+                sentimentScore: 50,
+                sentimentLabel: 'NEUTRAL'
             }
         };
     }

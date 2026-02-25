@@ -26,21 +26,32 @@ const ScreeningInterviewResults = () => {
     behavioralInsights = null
   } = location.state || {}
 
+  // Analysis is synchronous on the backend — scores arrive with the /complete response.
+  // Mark video/audio as done immediately if the navigation state already has scores.
+  const hasVideoScore = videoScore != null && videoScore !== 0
+  const hasAudioScore = audioScore != null && audioScore !== 0
+  const alreadyComplete = hasVideoScore || hasAudioScore
+
   // State for progressive results
   const [currentScore, setCurrentScore] = useState(score)
-  const [isAnalysisComplete, setIsAnalysisComplete] = useState(false)
+  const [isAnalysisComplete, setIsAnalysisComplete] = useState(alreadyComplete)
   const [analysisProgress, setAnalysisProgress] = useState({
-    transcription: true, // Already complete
-    aiEvaluation: true, // Already complete
-    videoAnalysis: false,
-    audioAnalysis: false
+    transcription: true,
+    aiEvaluation: true,
+    videoAnalysis: alreadyComplete,
+    audioAnalysis: alreadyComplete
   })
-  const [videoAnalysisResults, setVideoAnalysisResults] = useState(null)
-  const [audioAnalysisResults, setAudioAnalysisResults] = useState(null)
+  const [videoAnalysisResults, setVideoAnalysisResults] = useState(
+    hasVideoScore ? { score: videoScore } : null
+  )
+  const [audioAnalysisResults, setAudioAnalysisResults] = useState(
+    hasAudioScore ? { score: audioScore } : null
+  )
 
-  // Poll for analysis completion every 10 seconds
+  // Polling is only needed when we genuinely don't have scores yet
+  // (e.g. a page refresh that loses navigation state)
   useEffect(() => {
-    if (!interviewId || !analysisStatus || isAnalysisComplete) {
+    if (!interviewId || !applicationId || isAnalysisComplete) {
       return
     }
 

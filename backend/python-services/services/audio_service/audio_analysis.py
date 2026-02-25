@@ -4,8 +4,8 @@ Audio Analysis Microservice - VERSION 2.0 (MODEL-BASED ARCHITECTURE)
 
 🎯 UPGRADED SYSTEM - FULLY MODEL-BASED:
 ═══════════════════════════════════════
-├── Emotion Recognition: Wav2Vec2 (superb/wav2vec2-base-superb-er)
-├── Transcription & Speech Metrics: Whisper (openai/whisper-base)
+├── Emotion Recognition: Wav2Vec2-XLSR-EN (tiny, optimized)
+├── Transcription & Speech Metrics: Whisper-Tiny (fast & small)
 ├── Sentiment Analysis: DistilBERT (distilbert-sst-2)
 └── Unified Confidence Scoring: Multi-factor analysis
 
@@ -48,8 +48,8 @@ CORS(app)
 logger.info("="*70)
 logger.info("🚀 Audio Analysis Service v2.0 - MODEL-BASED ARCHITECTURE")
 logger.info("="*70)
-logger.info("   ✅ Emotion: Wav2Vec2 (superb/wav2vec2-base-superb-er)")
-logger.info("   ✅ Transcription: Whisper (openai/whisper-base)")
+logger.info("   ✅ Emotion: Wav2Vec2-XLSR-EN (tiny, 150MB)")
+logger.info("   ✅ Transcription: Whisper-Tiny (75MB)")
 logger.info("   ✅ Sentiment: DistilBERT (distilbert-sst-2)")
 logger.info("   ✅ Architecture: Modular with singleton pattern")
 logger.info("   ✅ All heuristics replaced with ML models")

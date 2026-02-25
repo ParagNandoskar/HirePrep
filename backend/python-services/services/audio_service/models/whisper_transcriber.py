@@ -57,7 +57,7 @@ class WhisperTranscriber:
             start = time.time()
             
             # Model configuration
-            self.model_name = "openai/whisper-base"
+            self.model_name = "openai/whisper-tiny"
             self.sample_rate = 16000
             
             # Local model path

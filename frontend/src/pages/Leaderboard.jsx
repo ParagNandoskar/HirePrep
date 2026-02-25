@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { HiStar, HiFire, HiTrendingUp, HiChevronRight, HiArrowLeft } from 'react-icons/hi'
+import { HiStar, HiFire, HiTrendingUp, HiChevronRight, HiArrowLeft, HiRefresh } from 'react-icons/hi'
 import { FaTrophy } from 'react-icons/fa'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
 import { useAuth } from '../context/AuthContext'
-import { leaderboardService } from '../services/leaderboardService'
+import { analysisService } from '../services/analysisService'
 import { apiService } from '../services/api'
 
 const Leaderboard = () => {
@@ -56,25 +56,38 @@ const Leaderboard = () => {
       setIsLoading(true)
       setSelectedInterview(interview)
       console.log(`🏆 Fetching leaderboard for job: ${interview.jobId?.title}`)
-      const response = await leaderboardService.getJobLeaderboard(interview.jobId?._id || interview.jobId)
+      
+      // Use new analysis service API
+      const response = await analysisService.getJobLeaderboard(interview.jobId?._id || interview.jobId)
+      
       if (response.success && response.data) {
         console.log('📊 Leaderboard data:', response.data)
-        setJobLeaderboard(response.data.candidates || [])
-        const myRank = response.data.candidates?.findIndex(
-          c => c.studentId._id === user.id || c.studentId === user.id
-        )
-        if (myRank !== -1) {
-          setMyRankInJob({
-            rank: myRank + 1,
-            totalCandidates: response.data.candidates?.length || 0,
-            score: interview.screeningScore
-          })
+        const candidates = response.data.candidates || []
+        setJobLeaderboard(candidates)
+        
+        // Find my rank
+        if (candidates.length > 0) {
+          const myRank = candidates.findIndex(
+            c => String(c.studentId) === String(user.id) ||
+                 String(c.studentId?._id) === String(user.id)
+          )
+          
+          if (myRank !== -1) {
+            setMyRankInJob({
+              rank: candidates[myRank].rank || myRank + 1,
+              totalCandidates: candidates.length,
+              score: candidates[myRank].overallScore || candidates[myRank].scores?.overallScore,
+              percentile: candidates[myRank].percentile || Math.round((1 - myRank / candidates.length) * 100)
+            })
+          } else {
+            // Current user not yet in list — show position from interview score
+            setMyRankInJob(null)
+          }
         }
       }
       setViewMode('leaderboard')
     } catch (error) {
       console.error('❌ Error fetching job leaderboard:', error)
-      // Still show the leaderboard view, but with empty data and helpful message
       setJobLeaderboard([])
       setMyRankInJob(null)
       setViewMode('leaderboard')
@@ -249,7 +262,7 @@ const Leaderboard = () => {
                   </div>
                   <p className="text-gray-600 text-lg font-medium">Leaderboard Not Available Yet</p>
                   <p className="text-gray-400 text-sm mt-2">
-                    The company hasn't generated the leaderboard for this position yet.
+                    Interviews are still being processed. Rankings appear automatically once candidates complete their interviews.
                   </p>
                   {selectedInterview.screeningScore ? (
                     <>
@@ -283,42 +296,58 @@ const Leaderboard = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {jobLeaderboard.map((candidate, index) => {
-                        const isCurrentUser = candidate.studentId._id === user.id || candidate.studentId === user.id
+                        const isCurrentUser =
+                          String(candidate.studentId) === String(user.id) ||
+                          String(candidate.studentId?._id) === String(user.id)
+                        const displayName = candidate.name || (isCurrentUser ? user?.name : null) || 'Anonymous'
+                        const rank = candidate.rank || index + 1
+                        const score = candidate.overallScore ?? candidate.scores?.overallScore ?? 0
+                        const percentile = candidate.percentile ?? 0
                         return (
-                          <tr key={candidate._id || index} className={`hover:bg-gray-50 transition-colors ${isCurrentUser ? 'bg-blue-50' : ''}`}>
+                          <tr key={candidate._id || index} className={`hover:bg-gray-50 transition-colors ${isCurrentUser ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <div className={`flex items-center justify-center w-10 h-10 rounded-full ${getRankBadgeColor(candidate.rank || index + 1)} font-bold`}>
-                                {candidate.rank || index + 1}
+                              <div className={`flex items-center justify-center w-10 h-10 rounded-full ${getRankBadgeColor(rank)} font-bold text-sm`}>
+                                {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                                  <span className="text-sm font-semibold text-gray-700">
-                                    {candidate.studentId?.name?.charAt(0) || '?'}
-                                  </span>
-                                </div>
+                                {candidate.avatar ? (
+                                  <img
+                                    src={candidate.avatar}
+                                    alt={displayName}
+                                    className="w-10 h-10 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-400'}`}>
+                                    {displayName.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
                                 <div>
-                                  <div className="font-semibold text-gray-900">
-                                    {isCurrentUser ? 'You' : (candidate.studentId?.name || 'Anonymous')}
-                                    {isCurrentUser && (
-                                      <span className="ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">You</span>
+                                  <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                    {isCurrentUser ? (
+                                      <>
+                                        <span>You</span>
+                                        <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">You</span>
+                                      </>
+                                    ) : (
+                                      <span>{displayName}</span>
                                     )}
                                   </div>
                                   <div className="text-xs text-gray-500">
-                                    {candidate.studentId?.profile?.university || 'University'}
+                                    {candidate.studentId?.profile?.university || ''}
                                   </div>
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-lg font-bold text-gray-900">
-                                {candidate.scores?.overallScore || 0}%
+                              <div className={`text-lg font-bold ${score >= 85 ? 'text-green-600' : score >= 70 ? 'text-blue-600' : score >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {Math.round(score)}%
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800">
-                                Top {candidate.percentile || 0}%
+                                Top {percentile}%
                               </div>
                             </td>
                           </tr>

@@ -10,6 +10,7 @@ const jobRoutes = require('./routes/job');
 const interviewRoutes = require('./routes/interview');
 const leaderboardRoutes = require('./routes/leaderboard');
 const statusRoutes = require('./routes/status');
+const analysisRoutes = require('./routes/analysis');
 
 // Import new routes for frontend compatibility
 const candidatesRoutes = require('./routes/candidates');
@@ -141,6 +142,7 @@ app.use('/api/job', jobRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/status', statusRoutes);
+app.use('/api/analysis', analysisRoutes);
 
 // New routes for frontend compatibility
 app.use('/api/candidates', candidatesRoutes);
