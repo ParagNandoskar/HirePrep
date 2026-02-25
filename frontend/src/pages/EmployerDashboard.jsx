@@ -40,7 +40,7 @@ const EmployerDashboard = () => {
       ])
       
       const stats = statsResponse?.data || {}
-      // API returns { data: { jobs: [...], pagination: {...} } }
+      // API returns { success: true, data: { jobs: [...], pagination: {...} } }
       const jobs = jobsResponse?.data?.jobs || jobsResponse?.jobs || []
       
       // Get real applications data
@@ -300,9 +300,10 @@ const EmployerDashboard = () => {
             <div className="flex items-center justify-center py-16">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
             </div>
-          ) : dashboardData.applicationsByStatus.length === 0 ? (
+          ) : !dashboardData.applicationsByStatus || dashboardData.applicationsByStatus.length === 0 ? (
             <div className="text-center py-16">
-              <p className="text-gray-500">No application data available</p>
+              <p className="text-gray-500 mb-2">No application data available</p>
+              <p className="text-gray-400 text-sm">Applications will appear here once candidates apply</p>
             </div>
           ) : (
             <div className="flex items-center justify-center">

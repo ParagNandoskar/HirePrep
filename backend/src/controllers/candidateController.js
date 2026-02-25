@@ -382,6 +382,56 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   }, 'Avatar uploaded successfully');
 });
 
+// Get upcoming interviews for candidate
+const getUpcomingInterviews = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  // Find all applications with scheduled interviews
+  const applications = await Application.find({
+    candidateId: userId,
+    'interviews.status': 'scheduled',
+    'interviews.scheduledAt': { $gte: new Date() } // Only future interviews
+  })
+  .populate('jobId', 'title')
+  .populate('companyId', 'name profile')
+  .sort({ 'interviews.scheduledAt': 1 }); // Sort by date ascending
+
+  // Extract and flatten interviews from all applications
+  const upcomingInterviews = [];
+  
+  applications.forEach(app => {
+    if (app.interviews && app.interviews.length > 0) {
+      app.interviews.forEach(interview => {
+        if (interview.status === 'scheduled' && interview.scheduledAt >= new Date()) {
+          upcomingInterviews.push({
+            id: interview._id,
+            date: interview.scheduledAt.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            }),
+            time: interview.scheduledAt.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            company: app.companyId?.profile?.companyName || app.companyId?.name || 'Unknown Company',
+            jobTitle: app.jobId?.title || 'Unknown Position',
+            type: interview.type || 'Interview',
+            status: interview.status,
+            duration: interview.duration,
+            meetingLink: interview.meetingLink,
+            location: interview.location,
+            interviewer: interview.interviewer,
+            applicationId: app._id
+          });
+        }
+      });
+    }
+  });
+
+  return successResponse(res, upcomingInterviews, 'Upcoming interviews retrieved successfully');
+});
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -389,5 +439,6 @@ module.exports = {
   updateApplication,
   getDashboardStats,
   getJobRecommendations,
-  uploadAvatar
+  uploadAvatar,
+  getUpcomingInterviews
 };

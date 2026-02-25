@@ -13,8 +13,8 @@ const RecentApplications = () => {
       try {
         const response = await candidatesAPI.getApplications({ limit: 6 })
         
-        if (response.success && response.applications) {
-          setApplications(response.applications)
+        if (response.success && response.data?.applications) {
+          setApplications(response.data.applications)
         }
       } catch (error) {
         console.error('Error fetching applications:', error)

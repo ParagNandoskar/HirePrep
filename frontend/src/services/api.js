@@ -338,7 +338,8 @@ export const candidatesAPI = {
   getJobRecommendations: (params = {}) => {
     const queryString = new URLSearchParams(params).toString()
     return apiService.get(`/candidates/job-recommendations${queryString ? `?${queryString}` : ''}`)
-  }
+  },
+  getUpcomingInterviews: () => apiService.get('/candidates/upcoming-interviews')
 }
 
 // Companies API  

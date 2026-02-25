@@ -2,6 +2,7 @@ const Company = require('../models/Company');
 const User = require('../models/User');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
+const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
 
@@ -127,7 +128,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       .limit(10),
     // Get applications count by status
     Application.aggregate([
-      { $match: { companyId: userId } },
+      { $match: { companyId: new mongoose.Types.ObjectId(userId) } },
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ])
   ]);
@@ -149,6 +150,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     'shortlisted': { name: 'Shortlisted', color: '#10b981' },
     'interview-scheduled': { name: 'Interview Scheduled', color: '#f59e0b' },
     'interviewing': { name: 'Interviewing', color: '#f97316' },
+    'interviewed': { name: 'Interviewed', color: '#a855f7' },
     'rejected': { name: 'Rejected', color: '#ef4444' },
     'hired': { name: 'Hired', color: '#8b5cf6' }
   };

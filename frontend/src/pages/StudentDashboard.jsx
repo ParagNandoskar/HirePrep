@@ -17,9 +17,9 @@ const StudentDashboard = () => {
         // Fetch applications with date grouping
         const response = await candidatesAPI.getApplications()
         
-        if (response.success && response.applications) {
+        if (response.success && response.data?.applications) {
           // Process data for chart - group by month
-          const groupedData = processApplicationsForChart(response.applications)
+          const groupedData = processApplicationsForChart(response.data.applications)
           setChartData(groupedData)
         }
       } catch (error) {

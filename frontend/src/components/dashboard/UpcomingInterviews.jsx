@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { HiExternalLink, HiCalendar } from 'react-icons/hi'
 import { useAuth } from '../../context/AuthContext'
+import { candidatesAPI } from '../../services/api'
 
 const UpcomingInterviews = () => {
   const { user } = useAuth()
@@ -10,10 +11,11 @@ const UpcomingInterviews = () => {
   useEffect(() => {
     const fetchInterviews = async () => {
       try {
-        // TODO: Replace with real API endpoint when available
-        // const response = await interviewAPI.getUpcomingInterviews()
-        // For now, no interviews (remove fake data)
-        setInterviews([])
+        const response = await candidatesAPI.getUpcomingInterviews()
+        
+        if (response.success && response.data) {
+          setInterviews(response.data)
+        }
       } catch (error) {
         console.error('Error fetching interviews:', error)
         setInterviews([])
@@ -22,8 +24,10 @@ const UpcomingInterviews = () => {
       }
     }
 
-    if (user) {
+    if (user && user.role === 'student') {
       fetchInterviews()
+    } else {
+      setIsLoading(false)
     }
   }, [user])
 
@@ -86,14 +90,40 @@ const UpcomingInterviews = () => {
                 </span>
               </div>
 
+              {/* Job Title */}
+              <div className="text-sm font-medium text-gray-900 mb-2">
+                {interview.jobTitle}
+              </div>
+
               {/* Interview Type */}
               <div className="text-sm font-medium text-gray-700 mb-1">
-                {interview.type}
+                Type: {interview.type}
               </div>
+
+              {/* Duration */}
+              {interview.duration && (
+                <div className="text-sm text-gray-600 mb-1">
+                  Duration: {interview.duration} minutes
+                </div>
+              )}
+
+              {/* Location or Meeting Link */}
+              {interview.meetingLink && (
+                <div className="text-sm text-blue-600 mb-1">
+                  <a href={interview.meetingLink} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    Join Meeting
+                  </a>
+                </div>
+              )}
+              {interview.location && !interview.meetingLink && (
+                <div className="text-sm text-gray-600 mb-1">
+                  Location: {interview.location}
+                </div>
+              )}
 
               {/* Status */}
               <div className="text-sm text-gray-600">
-                Status: <span className="font-medium">{interview.status}</span>
+                Status: <span className="font-medium capitalize">{interview.status}</span>
               </div>
             </div>
           ))}

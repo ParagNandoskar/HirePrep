@@ -42,7 +42,7 @@ const DashboardStats = ({ userType = 'student' }) => {
         } else {
           // Fetch employer stats
           const jobsResponse = await jobsAPI.getMyJobs()
-          const jobs = jobsResponse?.jobs || []
+          const jobs = jobsResponse?.data?.jobs || jobsResponse?.jobs || []
           
           let totalApplications = 0
           let interviewsScheduled = 0

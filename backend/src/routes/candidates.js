@@ -21,6 +21,7 @@ router.route('/applications/:applicationId')
 // Additional useful routes
 router.get('/dashboard-stats', candidateController.getDashboardStats);
 router.get('/job-recommendations', candidateController.getJobRecommendations);
+router.get('/upcoming-interviews', candidateController.getUpcomingInterviews);
 router.post('/upload-avatar', smartUploadMiddleware, candidateController.uploadAvatar);
 
 // Test endpoint for S3 configuration (only in development)
