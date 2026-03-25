@@ -37,30 +37,85 @@ const interviewSchema = new mongoose.Schema({
     required: false
   },
   
+  // Dynamic Interview Questions Pool (AI decides count - not fixed to 5)
+  questionsPool: [{
+    id: String, // Unique question ID
+    question: String, // The question text
+    category: String, // technical, behavioral, experience, skills, culture-fit, scenario, leadership
+    difficulty: String, // easy, medium, hard
+    type: {
+      type: String,
+      enum: ['main', 'follow-up'],
+      default: 'main'
+    },
+    answered: {
+      type: Boolean,
+      default: false
+    },
+    evaluation: {
+      overallScore: Number,
+      scores: {
+        relevance: Number,
+        clarity: Number,
+        technicalDepth: Number,
+        communication: Number,
+        experienceAlignment: Number
+      },
+      strengths: [String],
+      improvements: [String],
+      candidateType: String,
+      fitAssessment: String,
+      recommendation: String,
+      leadershipPotential: Boolean,
+      culturalFitSignals: [String]
+    },
+    followUpAsked: {
+      type: Boolean,
+      default: false
+    },
+    followUpQuestion: String
+  }],
+
+  // Interview Flow Metadata
+  currentQuestionIndex: {
+    type: Number,
+    default: 0
+  },
+
+  analysisMetadata: {
+    totalQuestionsGenerated: Number, // AI-decided count (3-10)
+    questionsAsked: Number, // How many questions asked so far
+    followUpsAsked: Number, // How many follow-ups asked
+    averageScore: Number, // Running average score
+    topicsCovered: [String], // Categories covered so far
+    interviewPhase: String, // 'warm-up', 'assessment', 'wrap-up'
+    candidateLevel: String, // junior, mid-level, senior
+    completionReasoning: String // Why interview was completed
+  },
+
+  // Comprehensive Feedback from AI
+  comprehensiveFeedback: String, // 4-5 paragraph personalized feedback
+
   // Interview Questions and Responses
   conversation: [{
     type: {
       type: String,
-      enum: ['question', 'answer', 'qa'] // Added 'qa' for combined question-answer
+      enum: ['question', 'answer', 'qa']
     },
     content: String,
-    videoUrl: String, // AWS S3 URL for video response (temporary - deleted after analysis)
-    videoKey: String, // AWS S3 key for video management
-    
-    // Transcription fields (Phase 1)
-    answerTranscript: String, // ✅ Actual spoken answer text
-    transcriptionConfidence: Number, // 0-1 confidence score from STT service
-    transcriptionLanguage: String, // e.g., 'en-US'
-    transcriptionDuration: Number, // Duration in seconds
-    transcriptionError: String, // Error message if transcription failed
-    
-    // Question details
-    question: String, // The question text
-    questionId: {
-      type: Number, // Store the question ID for reliable lookup
-      required: false
+    videoUrl: String,
+    videoKey: String,
+    answerTranscript: String,
+    transcriptionConfidence: Number,
+    transcriptionLanguage: String,
+    transcriptionDuration: Number,
+    transcriptionError: String,
+    question: String,
+    questionId: String,
+    isFollowUp: {
+      type: Boolean,
+      default: false
     },
-    
     timestamp: {
       type: Date,
       default: Date.now
@@ -69,8 +124,6 @@ const interviewSchema = new mongoose.Schema({
       type: Boolean,
       default: false
     },
-    
-    // Analysis status tracking
     analysisStatus: {
       transcribed: { type: Boolean, default: false },
       videoAnalyzed: { type: Boolean, default: false },

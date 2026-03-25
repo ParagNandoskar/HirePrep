@@ -37,14 +37,24 @@ const startInterview = asyncHandler(async (req, res) => {
       return errorResponse(res, 'You already have an active interview for this job', 400);
     }
 
-    // Generate interview questions
-    const questions = await interviewService.generateInterviewQuestions(
-      job,
-      resume.parsedData,
-      'medium'
+    // Generate dynamic interview questions using new AI service
+    const jobDescription = `
+      Position: ${job.title}
+      Description: ${job.description}
+      Required Skills: ${job.requirements?.skills?.map(s => s.name).join(', ') || 'Not specified'}
+      Experience Level: ${job.experienceLevel || 'Not specified'}
+    `;
+
+    // Determine candidate level from resume
+    const candidateLevel = resume.parsedData?.experience?.length > 5 ? 'senior' :
+                          resume.parsedData?.experience?.length > 2 ? 'mid-level' : 'junior';
+
+    const questions = await aiInterviewService.generateInterviewQuestions(
+      jobDescription,
+      candidateLevel
     );
 
-    // Create new interview
+    // Create new interview with interactive conversation tracking
     const interview = new Interview({
       studentId,
       jobId,
@@ -52,20 +62,44 @@ const startInterview = asyncHandler(async (req, res) => {
       duration: duration || 30,
       status: 'scheduled',
       startTime: new Date(),
-      conversation: questions.map((q, index) => ({
-        type: 'question',
-        content: q.question,
-        aiGenerated: true,
-        timestamp: new Date(),
-        questionId: q.id // Store the unique question ID for reliable lookup
-      }))
+      questionsPool: questions.map(q => ({
+        id: q.id,
+        question: q.question,
+        category: q.category,
+        difficulty: q.difficulty,
+        type: 'main',
+        answered: false,
+        evaluation: null,
+        followUpAsked: false
+      })),
+      conversation: [],
+      currentQuestionIndex: 0,
+      analysisMetadata: {
+        totalQuestionsGenerated: questions.length,
+        questionsAsked: 0,
+        followUpsAsked: 0,
+        averageScore: 0,
+        topicsCovered: []
+      }
     });
 
     await interview.save();
     await interview.populate(['studentId', 'jobId']);
 
-    // Get socket.io instance to set up real-time communication
-    const io = req.app.get('io');
+    // Get first question
+    const firstQuestion = interview.questionsPool[0];
+
+    // Add first question to conversation
+    interview.conversation.push({
+      type: 'question',
+      content: firstQuestion.question,
+      questionId: firstQuestion.id,
+      aiGenerated: true,
+      timestamp: new Date()
+    });
+
+    interview.analysisMetadata.questionsAsked = 1;
+    await interview.save();
 
     return successResponse(res, {
       interview: {
@@ -79,8 +113,17 @@ const startInterview = asyncHandler(async (req, res) => {
         status: interview.status,
         duration: interview.duration,
         startTime: interview.startTime,
-        questions: questions,
-        socketRoom: `interview_${interview._id}`
+        socketRoom: `interview_${interview._id}`,
+        currentQuestion: {
+          id: firstQuestion.id,
+          question: firstQuestion.question,
+          category: firstQuestion.category,
+          difficulty: firstQuestion.difficulty,
+          sequenceNumber: 1,
+          totalQuestions: questions.length
+        },
+        totalQuestionsToAsk: questions.length,
+        message: 'Interview started! Answer the first question.'
       }
     }, 'Interview session started successfully', 201);
 
@@ -141,7 +184,7 @@ const submitAnswer = asyncHandler(async (req, res) => {
       _id: interviewId,
       studentId,
       status: { $in: ['scheduled', 'in-progress'] }
-    });
+    }).populate('jobId');
 
     if (!interview) {
       return errorResponse(res, 'Interview not found or not accessible', 404);
@@ -152,101 +195,261 @@ const submitAnswer = asyncHandler(async (req, res) => {
       interview.status = 'in-progress';
     }
 
+    // Find the question from pool
+    const questionObj = interview.questionsPool.find(q => q.id === questionId);
+    if (!questionObj) {
+      return errorResponse(res, 'Question not found in interview', 404);
+    }
+
+    const question = questionObj.question;
+
     // Add answer to conversation
     interview.conversation.push({
       type: 'answer',
       content: answer,
+      questionId: questionId,
       timestamp: new Date()
     });
 
-    // Find the corresponding question using reliable questionId lookup
-    const questionMessage = interview.conversation.find(
-      msg => msg.type === 'question' && msg.questionId === questionId
-    );
-    const question = questionMessage ? questionMessage.content : '';
-
-    // Analyze the answer using AI
-    let answerAnalysis = null;
+    // Evaluate the answer using new AI service
+    let evaluation = null;
     try {
-      answerAnalysis = await interviewService.analyzeAnswer(
+      const jobDescription = interview.jobId.description || 'Job position';
+
+      // Get conversation history for context
+      const conversationHistory = interview.conversation.slice(-6).map(msg => ({
+        type: msg.type === 'question' ? 'interviewer' : 'candidate',
+        content: msg.content
+      }));
+
+      evaluation = await aiInterviewService.evaluateInterviewResponse(
         question,
         answer,
-        'Expected answer guidelines' // This could be enhanced with actual expected answers
+        jobDescription,
+        { previousAnswersSummary: null }
       );
-    } catch (error) {
-      console.error('Answer analysis error:', error);
-      // Continue without analysis if AI service fails
+
+      // Store evaluation in question object
+      questionObj.evaluation = evaluation;
+      questionObj.answered = true;
+
+      // Update metadata
+      if (!interview.analysisMetadata.topicsCovered.includes(questionObj.category)) {
+        interview.analysisMetadata.topicsCovered.push(questionObj.category);
+      }
+
+      // Calculate running average score
+      const allEvaluations = interview.questionsPool
+        .filter(q => q.evaluation)
+        .map(q => q.evaluation.overallScore || 0);
+      if (allEvaluations.length > 0) {
+        interview.analysisMetadata.averageScore =
+          Math.round(allEvaluations.reduce((a, b) => a + b, 0) / allEvaluations.length);
+      }
+
+    } catch (evalError) {
+      console.error('Answer evaluation error:', evalError);
+      evaluation = {
+        overallScore: 50,
+        fitAssessment: 'acceptable',
+        strengths: ['Response recorded'],
+        comment: 'Evaluation pending'
+      };
     }
 
-    // Initialize analysis structure if it doesn't exist
-    if (!interview.analysis) {
-      interview.analysis = {
-        qaAnalysis: {
-          responses: [],
-          overallQAScore: 0
+    // Decide: Follow-up or Next Question?
+    let nextAction = {
+      type: 'next-question', // 'follow-up' | 'next-question' | 'complete'
+      content: null
+    };
+
+    let followUpGenerated = false;
+
+    // Check if follow-up is needed
+    try {
+      const conversationHistory = interview.conversation.slice(-6).map(msg => ({
+        type: msg.type === 'question' ? 'interviewer' : 'candidate',
+        content: msg.content
+      }));
+
+      const followUpResponse = await aiInterviewService.generateAdaptiveFollowUp(
+        interview.jobId.description || 'Job position',
+        question,
+        answer,
+        conversationHistory
+      );
+
+      if (followUpResponse.shouldFollowUp && followUpResponse.followUpQuestion) {
+        // Add follow-up question to conversation
+        interview.conversation.push({
+          type: 'question',
+          content: followUpResponse.followUpQuestion,
+          questionId: `${questionId}_followup`,
+          isFollowUp: true,
+          aiGenerated: true,
+          timestamp: new Date()
+        });
+
+        interview.analysisMetadata.followUpsAsked += 1;
+        followUpGenerated = true;
+
+        nextAction = {
+          type: 'follow-up',
+          content: followUpResponse.followUpQuestion,
+          reasoning: followUpResponse.reasoning,
+          followUpStrategy: followUpResponse.followUpStrategy
+        };
+      } else {
+        // No follow-up needed, determine next question
+        const nextQuestionIndex = interview.questionsPool.findIndex(
+          q => !q.answered && q.id !== questionId
+        );
+
+        if (nextQuestionIndex !== -1) {
+          const nextQuestion = interview.questionsPool[nextQuestionIndex];
+
+          // Check if interview should be completed
+          const shouldComplete = await aiInterviewService.shouldCompleteInterview(
+            interview.analysisMetadata.questionsAsked,
+            interview.analysisMetadata.averageScore,
+            interview.analysisMetadata.topicsCovered.length,
+            interview.conversation
+          );
+
+          if (shouldComplete.shouldComplete) {
+            nextAction = {
+              type: 'complete',
+              reasoning: shouldComplete.reasoning,
+              assessment: shouldComplete.assessment
+            };
+          } else {
+            // Move to next question
+            interview.analysisMetadata.questionsAsked += 1;
+
+            interview.conversation.push({
+              type: 'question',
+              content: nextQuestion.question,
+              questionId: nextQuestion.id,
+              aiGenerated: true,
+              timestamp: new Date()
+            });
+
+            nextAction = {
+              type: 'next-question',
+              content: nextQuestion.question,
+              questionId: nextQuestion.id,
+              sequenceNumber: interview.analysisMetadata.questionsAsked,
+              totalQuestions: interview.questionsPool.length,
+              category: nextQuestion.category,
+              difficulty: nextQuestion.difficulty
+            };
+          }
+        } else {
+          // No more questions, complete interview
+          nextAction = {
+            type: 'complete',
+            reasoning: 'All questions completed'
+          };
         }
-      };
+      }
+    } catch (followUpError) {
+      console.error('Follow-up generation error:', followUpError);
+      // Fallback: try to get next question
+      const nextQuestionIndex = interview.questionsPool.findIndex(
+        q => !q.answered && q.id !== questionId
+      );
+
+      if (nextQuestionIndex !== -1) {
+        const nextQuestion = interview.questionsPool[nextQuestionIndex];
+        interview.analysisMetadata.questionsAsked += 1;
+
+        interview.conversation.push({
+          type: 'question',
+          content: nextQuestion.question,
+          questionId: nextQuestion.id,
+          aiGenerated: true,
+          timestamp: new Date()
+        });
+
+        nextAction = {
+          type: 'next-question',
+          content: nextQuestion.question,
+          questionId: nextQuestion.id,
+          sequenceNumber: interview.analysisMetadata.questionsAsked,
+          totalQuestions: interview.questionsPool.length,
+          category: nextQuestion.category,
+          difficulty: nextQuestion.difficulty
+        };
+      } else {
+        nextAction = {
+          type: 'complete',
+          reasoning: 'Interview completed'
+        };
+      }
     }
 
-    if (!interview.analysis.qaAnalysis) {
-      interview.analysis.qaAnalysis = {
-        responses: [],
-        overallQAScore: 0
-      };
-    }
+    // If interview is complete, generate feedback
+    let comprehensiveFeedback = null;
+    if (nextAction.type === 'complete') {
+      interview.status = 'completed';
+      interview.endTime = new Date();
 
-    // Add response analysis
-    if (answerAnalysis) {
-      interview.analysis.qaAnalysis.responses.push({
-        questionId: questionId,
-        question: question,
-        answer: answer,
-        relevanceScore: answerAnalysis.relevanceScore,
-        completenessScore: answerAnalysis.completenessScore,
-        technicalAccuracy: answerAnalysis.technicalAccuracy,
-        communicationScore: answerAnalysis.communicationScore
-      });
+      try {
+        comprehensiveFeedback = await aiInterviewService.generateComprehensiveFeedback(
+          {
+            questionsAsked: interview.analysisMetadata.questionsAsked,
+            averageScore: interview.analysisMetadata.averageScore,
+            topicsCovered: interview.analysisMetadata.topicsCovered,
+            overallFitAssessment:
+              interview.analysisMetadata.averageScore >= 75 ? 'strong' :
+              interview.analysisMetadata.averageScore >= 60 ? 'good' : 'concerning'
+          },
+          interview.jobId.description || 'Job position'
+        );
 
-      // Update overall Q&A score
-      const responses = interview.analysis.qaAnalysis.responses;
-      const totalScore = responses.reduce((sum, r) => {
-        return sum + (r.relevanceScore + r.completenessScore + r.technicalAccuracy + r.communicationScore) / 4;
-      }, 0);
-      interview.analysis.qaAnalysis.overallQAScore = Math.round(totalScore / responses.length);
+        interview.analysis = {
+          comprehensiveFeedback,
+          qaAnalysis: {
+            responses: interview.questionsPool.map(q => ({
+              questionId: q.id,
+              question: q.question,
+              category: q.category,
+              difficulty: q.difficulty,
+              evaluation: q.evaluation,
+              answered: q.answered
+            })),
+            overallQAScore: interview.analysisMetadata.averageScore,
+            topicsCovered: interview.analysisMetadata.topicsCovered
+          }
+        };
+      } catch (feedbackError) {
+        console.error('Feedback generation error:', feedbackError);
+      }
     }
 
     await interview.save();
 
-    // Generate follow-up question if needed
-    let followUpQuestion = null;
-    try {
-      if (interview.conversation.filter(msg => msg.type === 'question').length < 8) {
-        followUpQuestion = await interviewService.generateFollowUpQuestion(
-          interview.conversation,
-          question,
-          answer
-        );
-      }
-    } catch (error) {
-      console.error('Follow-up question generation error:', error);
-    }
-
     // Emit real-time update
     const io = req.app.get('io');
-    io.to(`interview_${interviewId}`).emit('answerSubmitted', {
+    io.to(`interview_${interviewId}`).emit('answerProcessed', {
       interviewId,
       answer,
-      analysis: answerAnalysis,
-      followUpQuestion
+      evaluation,
+      nextAction,
+      conversationLength: interview.conversation.length,
+      averageScore: interview.analysisMetadata.averageScore
     });
 
     return successResponse(res, {
       interviewId,
-      answerAnalysis,
-      followUpQuestion,
+      evaluation,
+      nextAction,
+      comprehensiveFeedback: nextAction.type === 'complete' ? comprehensiveFeedback : null,
       conversationLength: interview.conversation.length,
-      overallQAScore: interview.analysis.qaAnalysis.overallQAScore
-    }, 'Answer submitted and analyzed successfully');
+      averageScore: interview.analysisMetadata.averageScore,
+      questionsAsked: interview.analysisMetadata.questionsAsked,
+      totalQuestionsGenerated: interview.analysisMetadata.totalQuestionsGenerated
+    }, 'Answer submitted and processed successfully');
 
   } catch (error) {
     console.error('Answer submission error:', error);
