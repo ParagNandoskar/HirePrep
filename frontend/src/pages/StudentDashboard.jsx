@@ -4,7 +4,6 @@ import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
 import DashboardStats from '../components/dashboard/DashboardStats'
 import RecentApplications from '../components/dashboard/RecentApplications'
-import UpcomingInterviews from '../components/dashboard/UpcomingInterviews'
 import { candidatesAPI } from '../services/api'
 
 const StudentDashboard = () => {
@@ -77,16 +76,8 @@ const StudentDashboard = () => {
         <DashboardStats userType="student" />
         
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Applications - Takes 2 columns on large screens */}
-          <div className="lg:col-span-2">
-            <RecentApplications />
-          </div>
-          
-          {/* Upcoming Interviews - Takes 1 column on large screens */}
-          <div className="lg:col-span-1">
-            <UpcomingInterviews />
-          </div>
+        <div>
+          <RecentApplications />
         </div>
 
         {/* Applications vs Time Chart */}

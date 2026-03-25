@@ -385,51 +385,143 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 // Get upcoming interviews for candidate
 const getUpcomingInterviews = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const Interview = require('../models/Interview');
 
-  // Find all applications with scheduled interviews
-  const applications = await Application.find({
-    candidateId: userId,
-    'interviews.status': 'scheduled',
-    'interviews.scheduledAt': { $gte: new Date() } // Only future interviews
-  })
-  .populate('jobId', 'title')
-  .populate('companyId', 'name profile')
-  .sort({ 'interviews.scheduledAt': 1 }); // Sort by date ascending
+  try {
+    // 1. Find all scheduled interviews from Interview model (mock, live, screening)
+    const mockInterviews = await Interview.find({
+      studentId: userId,
+      status: { $in: ['scheduled', 'in-progress'] }
+    })
+    .populate('jobId', 'title description companyId')
+    .populate('studentId', 'name email')
+    .sort({ startTime: 1 }); // Sort by start time ascending
 
-  // Extract and flatten interviews from all applications
-  const upcomingInterviews = [];
-  
-  applications.forEach(app => {
-    if (app.interviews && app.interviews.length > 0) {
-      app.interviews.forEach(interview => {
-        if (interview.status === 'scheduled' && interview.scheduledAt >= new Date()) {
-          upcomingInterviews.push({
-            id: interview._id,
-            date: interview.scheduledAt.toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric'
-            }),
-            time: interview.scheduledAt.toLocaleTimeString('en-US', {
-              hour: '2-digit',
-              minute: '2-digit'
-            }),
-            company: app.companyId?.profile?.companyName || app.companyId?.name || 'Unknown Company',
-            jobTitle: app.jobId?.title || 'Unknown Position',
-            type: interview.type || 'Interview',
-            status: interview.status,
-            duration: interview.duration,
-            meetingLink: interview.meetingLink,
-            location: interview.location,
-            interviewer: interview.interviewer,
-            applicationId: app._id
-          });
-        }
+    // 2. Find all applications with scheduled interviews for HR/company interviews
+    const applicationsWithScheduled = await Application.find({
+      candidateId: userId,
+      'interviews.status': 'scheduled',
+      'interviews.scheduledAt': { $gte: new Date() } // Only future interviews
+    })
+    .populate('jobId', 'title')
+    .populate('companyId', 'name profile')
+    .sort({ 'interviews.scheduledAt': 1 }); // Sort by date ascending
+
+    // 3. Find all applications where user applied but hasn't started mock interview yet (pending)
+    const pendingMockInterviews = await Application.find({
+      candidateId: userId,
+      status: { $in: ['applied', 'screening-pending', 'pending'] }
+    })
+    .populate('jobId', 'title companyId')
+    .populate('companyId', 'name profile')
+    .sort({ appliedAt: -1 });
+
+    // 4. Filter pending interviews - exclude ones already handled by Interview model
+    const interviewedJobIds = mockInterviews.map(i => i.jobId?._id?.toString());
+    const pendingFiltered = pendingMockInterviews.filter(app =>
+      !interviewedJobIds.includes(app.jobId?._id?.toString())
+    );
+
+    // 5. Process mock interviews from Interview model
+    const upcomingInterviews = [];
+
+    mockInterviews.forEach(interview => {
+      if (interview.startTime) {
+        upcomingInterviews.push({
+          id: interview._id,
+          date: interview.startTime.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }),
+          time: interview.startTime.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          company: interview.jobId?.companyId?.profile?.companyName || interview.jobId?.companyId?.name || 'Mock Interview',
+          jobTitle: interview.jobId?.title || 'Mock Interview',
+          type: interview.type || 'mock',
+          status: interview.status,
+          duration: interview.duration || 30,
+          meetingLink: null,
+          location: null,
+          interviewer: 'AI',
+          applicationId: interview.applicationId,
+          interviewId: interview._id
+        });
+      }
+    });
+
+    // 6. Process pending mock interviews (applied but not started)
+    pendingFiltered.forEach(app => {
+      upcomingInterviews.push({
+        id: app._id,
+        date: 'Pending',
+        time: 'Not scheduled',
+        company: app.companyId?.profile?.companyName || app.companyId?.name || 'Unknown Company',
+        jobTitle: app.jobId?.title || 'Unknown Position',
+        type: 'mock',
+        status: 'pending',
+        duration: 30,
+        meetingLink: null,
+        location: null,
+        interviewer: 'AI',
+        applicationId: app._id,
+        isPending: true
       });
-    }
-  });
+    });
 
-  return successResponse(res, upcomingInterviews, 'Upcoming interviews retrieved successfully');
+    // 7. Process application scheduled interviews (HR/company interviews)
+    applicationsWithScheduled.forEach(app => {
+      if (app.interviews && app.interviews.length > 0) {
+        app.interviews.forEach(interview => {
+          if (interview.status === 'scheduled' && interview.scheduledAt >= new Date()) {
+            upcomingInterviews.push({
+              id: interview._id,
+              date: interview.scheduledAt.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              }),
+              time: interview.scheduledAt.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+              }),
+              company: app.companyId?.profile?.companyName || app.companyId?.name || 'Unknown Company',
+              jobTitle: app.jobId?.title || 'Unknown Position',
+              type: interview.type || 'Interview',
+              status: interview.status,
+              duration: interview.duration,
+              meetingLink: interview.meetingLink,
+              location: interview.location,
+              interviewer: interview.interviewer,
+              applicationId: app._id
+            });
+          }
+        });
+      }
+    });
+
+    // 8. Sort by status: pending first, then by date/time
+    upcomingInterviews.sort((a, b) => {
+      // Pending interviews first
+      if (a.isPending !== b.isPending) {
+        return a.isPending ? -1 : 1;
+      }
+      // Then sort by date/time
+      if (a.date === 'Pending') return -1;
+      if (b.date === 'Pending') return 1;
+
+      const dateA = new Date(a.date + ' ' + a.time);
+      const dateB = new Date(b.date + ' ' + b.time);
+      return dateA - dateB;
+    });
+
+    return successResponse(res, upcomingInterviews, 'Upcoming interviews retrieved successfully');
+  } catch (error) {
+    console.error('Error fetching upcoming interviews:', error);
+    return errorResponse(res, 'Failed to retrieve upcoming interviews: ' + error.message, 500);
+  }
 });
 
 module.exports = {

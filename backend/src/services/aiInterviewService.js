@@ -1,346 +1,361 @@
-const { getGeminiFlash } = require('../config/gemini');
+const { getOpenAIFlash } = require('../config/openai');
 
 /**
- * Generate dynamic interview questions based on job description
- * Creates contextual questions that feel like a real interview
+ * Generate FULLY DYNAMIC interview questions
+ * AI decides the optimal number of questions based on job complexity and requirements
+ * Questions are contextual and interconnected, not hardcoded to 5 questions
  */
-const generateInterviewQuestions = async (jobDescription, customQuestionsCount = 0) => {
+const generateInterviewQuestions = async (jobDescription, candidateLevel = 'mid-level') => {
   try {
-    const model = getGeminiFlash();
-    
-    const prompt = `You are an expert HR interviewer conducting a screening interview. Based on this job description, generate 5 insightful interview questions that will help assess if a candidate is a good fit.
+    const model = getOpenAIFlash();
+
+    const prompt = `You are an expert HR interviewer creating a CUSTOMIZED, ADAPTIVE interview for a candidate.
 
 JOB DESCRIPTION:
 ${jobDescription}
 
-REQUIREMENTS:
-1. Generate 5 unique, open-ended questions
-2. Questions should be conversational and natural
-3. Mix of technical skills, experience, and behavioral questions
-4. Each question should be relevant to the job requirements
-5. Questions should encourage detailed responses
-6. Make them feel like a real interview, not a quiz
+CANDIDATE LEVEL: ${candidateLevel}
 
-Return the questions in this exact JSON format:
+CRITICAL INSTRUCTION: You must AUTONOMOUSLY decide the optimal number of interview questions based on:
+1. Job Complexity Analysis:
+   - Simple/Entry-level role: 3-4 questions (focus on fundamentals)
+   - Mid-level role: 5-6 questions (balanced assessment)
+   - Senior/Expert role: 7-10 questions (comprehensive evaluation)
+   - Leadership role: 8-10 questions (include behavioral + strategic)
+
+2. Role Requirements Analysis:
+   - Technical heavy role: 60% technical + 40% behavioral/soft skills
+   - Leadership role: 40% technical + 60% behavioral/leadership
+   - Customer-facing: Include communication and stress-handling questions
+   - Niche role: Deep-dive specific knowledge questions
+
+3. Candidate Level Matching:
+   - Junior: Focus on fundamentals, willingness to learn
+   - Mid-level: Balanced technical + leadership potential
+   - Senior: Advanced scenarios, mentorship capabilities
+
+MUST INCLUDE:
+- Questions that build on each other (contextual references)
+- Progressive difficulty (easy → medium → hard)
+- Mix of question types (technical, behavioral, situational, scenario-based)
+- Real-world, practical questions
+- Questions that reveal problem-solving approach
+- Cultural fit assessment questions
+
+STRICTLY FOLLOW THIS FORMAT - Generate EXACTLY what's requested below:
+
+Return ONLY a valid JSON array (no markdown, no comments, no extra text):
 [
   {
-    "id": "ai_1",
-    "question": "Your question here",
-    "category": "technical|behavioral|experience|skills|culture-fit",
-    "followUpHints": "What aspects to listen for in the answer"
+    "id": "q_1",
+    "sequenceNumber": 1,
+    "question": "Full, conversational interview question with specific context",
+    "category": "technical|behavioral|experience|skills|culture-fit|scenario|leadership",
+    "difficulty": "easy|medium|hard",
+    "expectedKnowledgeAreas": ["area1", "area2", "area3"],
+    "followUpHints": ["probe point 1", "probe point 2", "probe point 3"],
+    "estimatedResponseTimeMinutes": 2,
+    "whyThisQuestion": "Why this is critical for this specific role",
+    "whatMakesGoodAnswer": "Specific criteria for a strong response",
+    "redFlags": ["warning sign 1", "warning sign 2"],
+    "relatesTo": "q_1 or null"
   }
 ]
 
-Generate 5 questions now:`;
+NOW GENERATE THE QUESTIONS - YOU DECIDE THE OPTIMAL COUNT, NOT FIXED TO 5:`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
-    
+
     // Extract JSON from response
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      throw new Error('Failed to parse AI response');
+      throw new Error('Failed to parse AI response - expected JSON array of questions');
     }
-    
+
     const questions = JSON.parse(jsonMatch[0]);
-    
-    // Add timeLimit to each question
-    return questions.map((q, index) => ({
+
+    // Enhance questions with metadata
+    const enhancedQuestions = questions.map((q, index) => ({
       ...q,
-      id: q.id || `ai_${index + 1}`,
-      timeLimit: 2, // 2 minutes per question
-      type: 'ai-generated'
+      id: q.id || `q_${index + 1}`,
+      sequenceNumber: index + 1,
+      totalQuestionsInInterview: questions.length,
+      type: 'ai-generated-dynamic',
+      isDynamic: true,
+      isAdaptive: true,
+      generatedAt: new Date(),
+      interviewPhase: index < 2 ? 'warm-up' : index < questions.length - 1 ? 'assessment' : 'wrap-up'
     }));
-    
+
+    console.log(`✅ AI-Generated ${enhancedQuestions.length} dynamic interview questions (not fixed to 5)`);
+
+    return enhancedQuestions;
+
   } catch (error) {
-    console.error('Error generating AI questions:', error);
+    console.error('Error generating dynamic interview questions:', error);
     throw error;
   }
 };
 
 /**
- * Generate a follow-up question based on previous answer
- * Creates dynamic, conversational flow
+ * Generate ADAPTIVE follow-up questions based on candidate answer
+ * AI decides if follow-up is needed and what direction to take
  */
-const generateFollowUpQuestion = async (jobDescription, previousQuestion, candidateAnswer) => {
+const generateAdaptiveFollowUp = async (jobDescription, currentQuestion, candidateAnswer, conversationHistory = []) => {
   try {
-    const model = getGeminiFlash();
-    
-    const prompt = `You are conducting a job interview. Based on the candidate's previous answer, generate a natural follow-up question to dig deeper.
+    const model = getOpenAIFlash();
 
-JOB CONTEXT:
+    const recentContext = conversationHistory
+      .slice(-6)  // Last 6 exchanges
+      .map(msg => `${msg.type}: ${msg.content}`)
+      .join('\n');
+
+    const prompt = `As an expert interviewer, analyze this candidate's answer and decide the best next action.
+
+JOB REQUIREMENTS:
 ${jobDescription}
 
-PREVIOUS QUESTION:
-${previousQuestion}
+CURRENT QUESTION:
+${currentQuestion}
 
-CANDIDATE'S ANSWER (transcript):
+CANDIDATE'S ANSWER:
 ${candidateAnswer}
 
-Generate ONE follow-up question that:
-1. Builds on their answer naturally
-2. Probes deeper into their experience/skills
-3. Feels conversational, not scripted
-4. Is relevant to the job requirements
-5. Encourages them to provide concrete examples
+RECENT INTERVIEW CONTEXT:
+${recentContext || 'Opening question'}
 
-Return in JSON format:
+Based on the answer quality and candidate's demonstrated knowledge, decide:
+1. Is follow-up needed? (answer incomplete, needs clarification, or deserves deeper exploration)
+2. What should be explored next? (follow-up on this topic or pivot to new area)
+3. What are the assessment signals? (strengths, gaps, red flags)
+
+Return ONLY valid JSON:
 {
-  "question": "Your follow-up question here",
-  "reason": "Why this follow-up is relevant"
+  "shouldFollowUp": true|false,
+  "followUpQuestion": "null or specific follow-up question",
+  "reasoning": "Short reason for decision",
+  "answerQuality": "poor|fair|good|excellent",
+  "assessmentInsights": {
+    "strengths": ["strength1", "strength2"],
+    "gaps": ["gap1", "gap2"],
+    "redFlags": ["flag1"] or [],
+    "candidateLevel": "junior|mid|senior|expert"
+  },
+  "nextTopic": "pivot to this area or null if following up on current",
+  "followUpStrategy": "clarification|deeper-dive|challenge-assumption|pivot"
 }`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
-    
+
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('Failed to parse follow-up question');
+      return {
+        shouldFollowUp: false,
+        followUpQuestion: null,
+        reasoning: 'Proceeding to next question'
+      };
     }
-    
-    const followUp = JSON.parse(jsonMatch[0]);
-    
-    return {
-      id: `followup_${Date.now()}`,
-      question: followUp.question,
-      type: 'ai-followup',
-      timeLimit: 2,
-      category: 'follow-up',
-      context: followUp.reason
-    };
-    
+
+    return JSON.parse(jsonMatch[0]);
+
   } catch (error) {
-    console.error('Error generating follow-up question:', error);
-    return null; // Don't break the interview if follow-up fails
+    console.error('Error generating adaptive follow-up:', error);
+    return {
+      shouldFollowUp: false,
+      followUpQuestion: null,
+      reasoning: 'Moving to next question (follow-up generation failed)'
+    };
   }
 };
 
 /**
- * Evaluate interview responses using AI
- * Provides detailed scoring and feedback
+ * Evaluate interview response with context awareness
  */
-const evaluateInterviewResponse = async (question, answer, jobDescription) => {
+const evaluateInterviewResponse = async (question, answer, jobDescription, conversationContext = {}) => {
   try {
-    const model = getGeminiFlash();
-    
-    const prompt = `You are an expert HR evaluator. Analyze this interview response and provide a detailed evaluation.
+    const model = getOpenAIFlash();
+
+    const prompt = `Evaluate this interview response in the context of the full interview and role requirements.
 
 JOB CONTEXT:
 ${jobDescription}
 
-INTERVIEW QUESTION:
+QUESTION:
 ${question}
 
-CANDIDATE'S ANSWER:
+ANSWER:
 ${answer}
 
-Evaluate the answer on these criteria:
-1. Relevance (0-100): How well does it answer the question?
-2. Clarity (0-100): Is the answer clear and well-structured?
-3. Technical Accuracy (0-100): Does it demonstrate proper understanding?
-4. Experience Level (0-100): Does it show appropriate experience?
-5. Communication (0-100): Is it articulate and professional?
+PREVIOUS ANSWERS CONTEXT:
+${conversationContext.previousAnswersSummary || 'First question of interview'}
 
-Return in JSON format:
+Evaluate comprehensively:
+Return ONLY valid JSON:
 {
+  "score": 0-100,
   "scores": {
-    "relevance": 85,
-    "clarity": 90,
-    "technicalAccuracy": 80,
-    "experienceLevel": 85,
-    "communication": 88
+    "relevance": 0-100,
+    "clarity": 0-100,
+    "technicalDepth": 0-100,
+    "communication": 0-100,
+    "experienceAlignment": 0-100
   },
-  "overallScore": 86,
-  "strengths": ["Clear communication", "Good examples"],
-  "improvements": ["Could provide more technical details"],
-  "feedback": "Brief constructive feedback"
+  "overallScore": 0-100,
+  "strengths": ["strength1", "strength2"],
+  "improvements": ["improvement1", "improvement2"],
+  "keyInsights": "Notable observations",
+  "candidateType": "junior|mid|senior|expert",
+  "fitAssessment": "strong|good|acceptable|concerning",
+  "recommendation": "strong-hire|hire|maybe|no-hire",
+  "leadershipPotential": true|false,
+  "culturalFitSignals": ["signal1", "signal2"]
 }`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
-    
+
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('Failed to parse evaluation');
     }
-    
+
     return JSON.parse(jsonMatch[0]);
-    
+
   } catch (error) {
     console.error('Error evaluating response:', error);
-    // Return default scores if AI fails
     return {
-      scores: {
-        relevance: 75,
-        clarity: 75,
-        technicalAccuracy: 75,
-        experienceLevel: 75,
-        communication: 75
-      },
-      overallScore: 75,
-      strengths: ['Response provided'],
-      improvements: ['Could not be fully evaluated'],
-      feedback: 'Evaluation pending'
+      score: 50,
+      overallScore: 50,
+      strengths: ['Response recorded'],
+      improvements: ['Awaiting evaluation'],
+      keyInsights: 'Evaluation pending'
     };
   }
 };
 
 /**
- * Transcribe video to text (placeholder - will need actual transcription service)
- * Options: AWS Transcribe, Google Speech-to-Text, AssemblyAI
+ * Comprehensive interview feedback based on all answers
  */
-const transcribeVideo = async (videoUrl) => {
+const generateComprehensiveFeedback = async (interview, jobDescription) => {
   try {
-    // TODO: Integrate with actual transcription service
-    // For now, return placeholder
-    console.log('Video transcription needed for:', videoUrl);
-    
-    // In production, use:
-    // - AWS Transcribe
-    // - Google Speech-to-Text
-    // - AssemblyAI
-    // - Deepgram
-    
-    return {
-      transcript: '[Transcription pending - integrate speech-to-text service]',
-      confidence: 0,
-      duration: 120
-    };
-    
-  } catch (error) {
-    console.error('Error transcribing video:', error);
-    return {
-      transcript: '[Transcription failed]',
-      confidence: 0,
-      duration: 0
-    };
-  }
-};
+    const model = getOpenAIFlash();
 
-/**
- * Evaluate entire interview and generate final score
- */
-const evaluateCompleteInterview = async (responses, jobDescription) => {
-  try {
-    // Evaluate each response
-    const evaluations = [];
-    
-    for (const response of responses) {
-      // Use the actual transcript (answerTranscript) from speech-to-text
-      const answerText = response.answerTranscript || 
-                        response.transcript || 
-                        '[No transcript available]';
-      
-      const evaluation = await evaluateInterviewResponse(
-        response.question,
-        answerText, // ✅ Now using real transcribed answer
-        jobDescription
-      );
-      
-      evaluations.push({
-        questionId: response.questionId,
-        question: response.question,
-        answer: answerText,
-        ...evaluation
-      });
-    }
-    
-    // Calculate overall scores
-    const avgScores = {
-      relevance: 0,
-      clarity: 0,
-      technicalAccuracy: 0,
-      experienceLevel: 0,
-      communication: 0
+    const interviewMetrics = {
+      totalQuestions: interview.questionsAsked || 0,
+      averageScore: Math.round(interview.averageScore || 0),
+      topicsCovered: interview.topicsCovered || [],
+      overallFit: interview.overallFitAssessment || 'pending'
     };
-    
-    evaluations.forEach(evaluation => {
-      Object.keys(avgScores).forEach(key => {
-        avgScores[key] += evaluation.scores[key];
-      });
-    });
-    
-    Object.keys(avgScores).forEach(key => {
-      avgScores[key] = Math.round(avgScores[key] / evaluations.length);
-    });
-    
-    const overallScore = Math.round(
-      Object.values(avgScores).reduce((a, b) => a + b, 0) / Object.keys(avgScores).length
-    );
-    
-    // Collect all strengths and improvements
-    const allStrengths = [];
-    const allImprovements = [];
-    
-    evaluations.forEach(evaluation => {
-      allStrengths.push(...evaluation.strengths);
-      allImprovements.push(...evaluation.improvements);
-    });
-    
-    // Remove duplicates
-    const uniqueStrengths = [...new Set(allStrengths)].slice(0, 5);
-    const uniqueImprovements = [...new Set(allImprovements)].slice(0, 5);
-    
-    return {
-      overallScore,
-      categoryScores: avgScores,
-      strengths: uniqueStrengths,
-      improvements: uniqueImprovements,
-      questionEvaluations: evaluations,
-      recommendation: overallScore >= 85 ? 'hire' : overallScore >= 70 ? 'maybe' : 'no-hire'
-    };
-    
-  } catch (error) {
-    console.error('Error evaluating complete interview:', error);
-    throw error;
-  }
-};
 
-/**
- * Generate personalized feedback for candidate
- */
-const generateInterviewFeedback = async (evaluation, jobDescription) => {
-  try {
-    const model = getGeminiFlash();
-    
-    const prompt = `You are an HR professional providing constructive interview feedback.
+    const prompt = `Generate comprehensive, personalized interview feedback after a full interview session.
 
-JOB CONTEXT:
+JOB POSITION:
 ${jobDescription}
 
-INTERVIEW EVALUATION:
-- Overall Score: ${evaluation.overallScore}/100
-- Strengths: ${evaluation.strengths.join(', ')}
-- Areas for Improvement: ${evaluation.improvements.join(', ')}
+INTERVIEW METRICS:
+- Total Questions Asked: ${interviewMetrics.totalQuestions}
+- Average Performance Score: ${interviewMetrics.averageScore}/100
+- Topics Covered: ${interviewMetrics.topicsCovered.join(', ')}
+- Overall Fit Assessment: ${interviewMetrics.overallFit}
 
-Generate encouraging, constructive feedback that:
-1. Acknowledges their strengths
-2. Provides specific areas to improve
-3. Offers actionable advice
-4. Maintains a positive, professional tone
-5. Is 2-3 paragraphs maximum
+Create constructive, encouraging feedback that:
+1. Celebrates demonstrated strengths with specific examples
+2. Provides concrete, actionable improvement areas
+3. Identifies high-potential areas
+4. Offers realistic preparation recommendations
+5. Maintains supportive, professional tone
+
+Structure: 4-5 paragraphs covering:
+- Interview Performance Summary
+- Key Strengths Demonstrated
+- Areas for Growth and Development
+- Concrete Next Steps and Recommendations
+- Closing Encouragement
 
 Write the feedback now:`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    
+
     return response.text();
-    
+
   } catch (error) {
-    console.error('Error generating feedback:', error);
-    return 'Thank you for completing the interview. Your responses have been recorded and will be reviewed by the hiring team.';
+    console.error('Error generating comprehensive feedback:', error);
+    return 'Thank you for the interview. Your responses have been recorded and will be reviewed.';
+  }
+};
+
+/**
+ * AI determines if interview should continue or complete
+ * Not fixed - AI decides based on assessment coverage and patterns
+ */
+const shouldCompleteInterview = async (questionsAsked, averageScore, uniqueTopicsCovered, conversationHistory) => {
+  try {
+    const model = getOpenAIFlash();
+
+    const prompt = `Determine if an interview has gathered sufficient information about a candidate.
+
+INTERVIEW STATUS:
+- Questions Asked: ${questionsAsked}
+- Average Score: ${averageScore}/100
+- Topics Covered: ${uniqueTopicsCovered} unique areas
+- Total Conversation Turns: ${conversationHistory.length}
+
+DECISION CRITERIA:
+1. Minimum threshold: At least 3 questions answered
+2. Adequate coverage: Key job requirements assessed
+3. Pattern clarity: Assessment trend is stable
+4. Reasonable length: Not exceeding 10 questions (unless complex role)
+5. Candidate fatigue: Interview should not be too long
+
+Decide with reasoning.
+
+Return ONLY valid JSON:
+{
+  "shouldComplete": true|false,
+  "reasoning": "Why complete or continue",
+  "assessment": {
+    "sufficiencyScore": 0-100,
+    "coverageLevel": "incomplete|adequate|comprehensive",
+    "patternClarity": 0-100,
+    "recommendation": "complete|ask-more|probe-specific-area"
+  },
+  "suggestion": "Next action if continuing"
+}`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      // Fallback logic
+      return {
+        shouldComplete: questionsAsked >= 5,
+        reasoning: 'Using default completion logic'
+      };
+    }
+
+    return JSON.parse(jsonMatch[0]);
+
+  } catch (error) {
+    console.error('Error determining interview completion:', error);
+    return {
+      shouldComplete: questionsAsked >= 5,
+      reasoning: 'Fallback completion logic'
+    };
   }
 };
 
 module.exports = {
   generateInterviewQuestions,
-  generateFollowUpQuestion,
+  generateAdaptiveFollowUp,
   evaluateInterviewResponse,
-  evaluateCompleteInterview,
-  transcribeVideo,
-  generateInterviewFeedback
+  generateComprehensiveFeedback,
+  shouldCompleteInterview
 };

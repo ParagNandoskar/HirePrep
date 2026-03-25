@@ -1,4 +1,4 @@
-const { getGeminiFlash } = require('../config/gemini');
+const { getGrokFlash } = require('../config/grok');
 const Job = require('../models/Job');
 const googleTTSService = require('./googleTTSService');
 const interviewAggregationService = require('./interviewAggregationService');
@@ -93,7 +93,7 @@ class GeminiVoiceInterviewService {
         this.activeInterviews.set(sessionId, context);
       }
 
-      const model = getGeminiFlash();
+      const model = getGrokFlash();
       
       const prompt = this.buildInterviewPrompt(context);
       
@@ -293,7 +293,7 @@ Generate ONLY the question text, no labels or numbers.`;
       }
 
       // ── 3. Gemini evaluates answer CONTENT (transcript only) ─────────────
-      const model = getGeminiFlash();
+      const model = getGrokFlash();
       const analysisPrompt = `You are an expert hiring manager analysing an interview for the position of ${jobTitle}.
 
 Key Requirements: ${requirements}
