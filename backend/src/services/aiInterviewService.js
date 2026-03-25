@@ -68,13 +68,67 @@ NOW GENERATE THE QUESTIONS - YOU DECIDE THE OPTIMAL COUNT, NOT FIXED TO 5:`;
     const response = await result.response;
     const text = response.text();
 
-    // Extract JSON from response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      throw new Error('Failed to parse AI response - expected JSON array of questions');
+    // Extract JSON from response with improved parsing
+    let jsonString = text;
+
+    // Find the JSON array start and end
+    const arrayStart = text.indexOf('[');
+    const arrayEnd = text.lastIndexOf(']');
+
+    if (arrayStart === -1 || arrayEnd === -1 || arrayStart >= arrayEnd) {
+      console.error('Raw AI Response:', text.substring(0, 1000));
+      throw new Error('Failed to find JSON array in AI response');
     }
 
-    const questions = JSON.parse(jsonMatch[0]);
+    jsonString = text.substring(arrayStart, arrayEnd + 1);
+
+    // More aggressive JSON cleaning
+    jsonString = jsonString.replace(/\n+/g, ' ');
+    jsonString = jsonString.replace(/\r+/g, ' ');
+    jsonString = jsonString.replace(/\t+/g, ' ');
+    jsonString = jsonString.replace(/\s{2,}/g, ' ');
+
+    // Fix JSON structure issues
+    jsonString = jsonString.replace(/:\s+([{[])/g, ': $1');
+    jsonString = jsonString.replace(/,\s+}/g, '}');
+    jsonString = jsonString.replace(/,\s+]/g, ']');
+
+    // Fix unescaped quotes in strings (only between value delimiters)
+    // This is a text-based approach - look for problematic patterns
+    jsonString = jsonString.replace(/"([^"]*)":\s*"([^"]*)"/g, (match, key, value) => {
+      // Clean the value: remove unescaped quotes and special chars
+      const cleanValue = value.replace(/"/g, '\\"').trim();
+      return `"${key}": "${cleanValue}"`;
+    });
+
+    let questions;
+    try {
+      questions = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error('JSON Parse Error:', parseError.message);
+      console.error('Raw text length:', text.length);
+      console.error('Extracted JSON length:', jsonString.length);
+
+      // If parsing fails, try to extract valid JSON by finding complete objects
+      try {
+        const objectMatches = jsonString.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g) || [];
+        if (objectMatches.length > 0) {
+          questions = objectMatches.map((obj, idx) => {
+            try {
+              return JSON.parse(obj);
+            } catch {
+              console.warn(`Skipping object ${idx} due to parse error`);
+              return null;
+            }
+          }).filter(q => q !== null);
+        } else {
+          throw new Error('No valid JSON objects found');
+        }
+      } catch (fallbackError) {
+        console.error('Fallback extraction also failed:', fallbackError.message);
+        throw new Error(`Failed to parse JSON: ${parseError.message}`);
+      }
+    }
 
     // Enhance questions with metadata
     const enhancedQuestions = questions.map((q, index) => ({
@@ -151,16 +205,29 @@ Return ONLY valid JSON:
     const response = await result.response;
     const text = response.text();
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    try {
+      const objectStart = text.indexOf('{');
+      const objectEnd = text.lastIndexOf('}');
+
+      if (objectStart === -1 || objectEnd === -1 || objectStart >= objectEnd) {
+        return {
+          shouldFollowUp: false,
+          followUpQuestion: null,
+          reasoning: 'Proceeding to next question'
+        };
+      }
+
+      let jsonString = text.substring(objectStart, objectEnd + 1);
+      jsonString = jsonString.replace(/[\r\n]+/g, ' ');
+
+      return JSON.parse(jsonString);
+    } catch (error) {
       return {
         shouldFollowUp: false,
         followUpQuestion: null,
         reasoning: 'Proceeding to next question'
       };
     }
-
-    return JSON.parse(jsonMatch[0]);
 
   } catch (error) {
     console.error('Error generating adaptive follow-up:', error);
@@ -219,12 +286,21 @@ Return ONLY valid JSON:
     const response = await result.response;
     const text = response.text();
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to parse evaluation');
-    }
+    try {
+      const objectStart = text.indexOf('{');
+      const objectEnd = text.lastIndexOf('}');
 
-    return JSON.parse(jsonMatch[0]);
+      if (objectStart === -1 || objectEnd === -1 || objectStart >= objectEnd) {
+        throw new Error('Failed to find JSON object in response');
+      }
+
+      let jsonString = text.substring(objectStart, objectEnd + 1);
+      jsonString = jsonString.replace(/[\r\n]+/g, ' ');
+
+      return JSON.parse(jsonString);
+    } catch (parseError) {
+      throw new Error('Failed to parse evaluation: ' + parseError.message);
+    }
 
   } catch (error) {
     console.error('Error evaluating response:', error);
@@ -332,16 +408,29 @@ Return ONLY valid JSON:
     const response = await result.response;
     const text = response.text();
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      // Fallback logic
+    try {
+      const objectStart = text.indexOf('{');
+      const objectEnd = text.lastIndexOf('}');
+
+      if (objectStart === -1 || objectEnd === -1 || objectStart >= objectEnd) {
+        // Fallback logic
+        return {
+          shouldComplete: questionsAsked >= 5,
+          reasoning: 'Using default completion logic'
+        };
+      }
+
+      let jsonString = text.substring(objectStart, objectEnd + 1);
+      jsonString = jsonString.replace(/[\r\n]+/g, ' ');
+
+      return JSON.parse(jsonString);
+    } catch (error) {
+      // Fallback on parse error
       return {
         shouldComplete: questionsAsked >= 5,
-        reasoning: 'Using default completion logic'
+        reasoning: 'Fallback completion logic due to parsing error'
       };
     }
-
-    return JSON.parse(jsonMatch[0]);
 
   } catch (error) {
     console.error('Error determining interview completion:', error);
