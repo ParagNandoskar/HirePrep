@@ -2,6 +2,8 @@ const geminiVoiceService = require('../services/geminiVoiceService');
 const behavioralAnalysisService = require('../services/behavioralAnalysisService');
 const videoUploadService = require('../services/videoUploadService');
 const Application = require('../models/Application');
+const Candidate = require('../models/Candidate');
+const MockInterview = require('../models/MockInterview');
 const interviewAggregationService = require('../services/interviewAggregationService');
 
 /**
@@ -9,13 +11,54 @@ const interviewAggregationService = require('../services/interviewAggregationSer
  */
 exports.initializeVoiceInterview = async (req, res) => {
   try {
-    const { jobId, applicationId, candidateName } = req.body;
+    const { jobId, applicationId, candidateName, mockJobDetails } = req.body;
 
     if (!jobId) {
       return res.status(400).json({ error: 'Job ID is required' });
     }
 
-    const result = await geminiVoiceService.initializeInterview(jobId, candidateName || 'Candidate');
+    const candidateUserId = req.user?._id || req.user?.id || null;
+    const isMockInterview = jobId === 'practice' || !applicationId;
+
+    if (isMockInterview && candidateUserId) {
+      const candidateProfile = await Candidate.findOne({ userId: candidateUserId })
+        .select('subscription')
+        .lean();
+
+      const plan = (candidateProfile?.subscription?.plan || 'free').toLowerCase();
+
+      if (plan === 'free') {
+        return res.status(403).json({
+          error: 'Mock interviews are available on Pro and Elite plans only.'
+        });
+      }
+
+      if (plan === 'pro') {
+        const now = new Date();
+        const day = now.getDay();
+        const diffToMonday = day === 0 ? 6 : day - 1;
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - diffToMonday);
+        weekStart.setHours(0, 0, 0, 0);
+
+        const mockCountThisWeek = await MockInterview.countDocuments({
+          candidateId: candidateUserId,
+          completedAt: { $gte: weekStart }
+        });
+
+        if (mockCountThisWeek >= 3) {
+          return res.status(403).json({
+            error: 'Pro plan allows up to 3 mock interviews per week. Upgrade to Elite for unlimited practice.'
+          });
+        }
+      }
+    }
+
+    const result = await geminiVoiceService.initializeInterview(jobId, candidateName || 'Candidate', {
+      applicationId,
+      candidateUserId,
+      mockJobDetails: mockJobDetails || null
+    });
 
     res.json(result);
   } catch (error) {
@@ -186,9 +229,9 @@ exports.submitAnswer = async (req, res) => {
  */
 exports.completeInterview = async (req, res) => {
   try {
-    const { sessionId, applicationId } = req.body;
+    const { sessionId, applicationId, proctoringStats } = req.body;
 
-    console.log('🎯 Complete Interview Request:', { sessionId, applicationId });
+    console.log('🎯 Complete Interview Request:', { sessionId, applicationId, proctoringStats });
 
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -196,7 +239,7 @@ exports.completeInterview = async (req, res) => {
 
     // Generate final analysis with combined scores
     console.log('📊 Generating final analysis...');
-    const analysis = await geminiVoiceService.generateFinalAnalysis(sessionId);
+    const analysis = await geminiVoiceService.generateFinalAnalysis(sessionId, proctoringStats || {});
     console.log('✅ Analysis generated:', {
       overallScore: analysis.overallScore,
       hasStrengths: !!analysis.strengths,
@@ -261,6 +304,12 @@ exports.completeInterview = async (req, res) => {
           improvements: analysis.improvements,
           insights: analysis.insights,
           behavioralInsights: analysis.behavioralInsights,
+          proctoring: analysis.proctoring || {
+            tabSwitches: 0,
+            appSwitches: 0,
+            totalSwitches: 0,
+            riskLevel: 'low'
+          },
           recommendation: analysis.recommendation,
           integrityWarning: analysis.integrityWarning,
           questionsAnswered: questionsAnswered
@@ -283,13 +332,120 @@ exports.completeInterview = async (req, res) => {
         console.error(`❌ Application ${applicationId} NOT FOUND in database!`);
       }
     } else {
-      console.log('⚠️  No applicationId provided - skipping application update');
+      const context = geminiVoiceService.getInterviewProgress(sessionId);
+      let transcript = [];
+      let questionsAnswered = 0;
+
+      if (context && context.conversationHistory && context.conversationHistory.length > 0) {
+        let questionNumber = 0;
+        context.conversationHistory.forEach(item => {
+          if (item.type === 'ai_question') {
+            questionNumber++;
+            transcript.push({ type: 'question', content: item.content, timestamp: item.timestamp, questionNumber });
+          } else if (item.type === 'candidate_answer') {
+            transcript.push({ type: 'answer', content: item.content, timestamp: item.timestamp, questionNumber });
+          }
+        });
+        questionsAnswered = context.conversationHistory.filter(h => h.type === 'candidate_answer').length;
+      } else {
+        const QuestionAnalysis = require('../models/QuestionAnalysis');
+        const qaDocs = await QuestionAnalysis.find({ sessionId }).sort({ questionNumber: 1 }).lean();
+        qaDocs.forEach(q => {
+          if (q.questionText) transcript.push({ type: 'question', content: q.questionText, questionNumber: q.questionNumber });
+          if (q.answerText) transcript.push({ type: 'answer', content: q.answerText, questionNumber: q.questionNumber });
+        });
+        questionsAnswered = qaDocs.length;
+      }
+
+      const candidateUserId = req.user?._id || req.user?.id || null;
+      const mockInterview = await MockInterview.create({
+        candidateId: candidateUserId,
+        sessionId,
+        jobContext: {
+          jobTitle: context?.jobTitle || 'Practice Interview',
+          companyName: context?.companyName || 'HirePrep',
+          description: context?.description || '',
+          requiredSkills: context?.requiredSkills || []
+        },
+        questionsAnswered,
+        transcript,
+        analysis: {
+          overallScore: analysis.overallScore,
+          contentScore: analysis.contentScore,
+          communicationScore: analysis.communicationScore,
+          technicalScore: analysis.technicalScore,
+          problemSolvingScore: analysis.problemSolvingScore,
+          culturalFitScore: analysis.culturalFitScore,
+          behavioralScore: analysis.behavioralScore,
+          videoScore: analysis.videoScore,
+          audioScore: analysis.audioScore,
+          strengths: analysis.strengths || [],
+          improvements: analysis.improvements || [],
+          insights: analysis.insights || '',
+          recommendation: analysis.recommendation || '',
+          behavioralInsights: analysis.behavioralInsights || {},
+          proctoring: analysis.proctoring || {},
+          integrityWarning: analysis.integrityWarning || ''
+        },
+        completedAt: new Date()
+      });
+
+      analysis.mockInterviewId = mockInterview._id;
     }
 
     res.json(analysis);
   } catch (error) {
     console.error('Error completing interview:', error);
     res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getMockResults = async (req, res) => {
+  try {
+    const candidateUserId = req.user?._id || req.user?.id;
+
+    const results = await MockInterview.find({ candidateId: candidateUserId })
+      .select('jobContext analysis.overallScore questionsAnswered completedAt')
+      .sort({ completedAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      data: {
+        interviews: results.map((item) => ({
+          _id: item._id,
+          jobTitle: item.jobContext?.jobTitle || 'Practice Interview',
+          companyName: item.jobContext?.companyName || 'Mock Company',
+          score: item.analysis?.overallScore || 0,
+          questionsAnswered: item.questionsAnswered || 0,
+          completedAt: item.completedAt
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error getting mock results:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getMockResultById = async (req, res) => {
+  try {
+    const candidateUserId = req.user?._id || req.user?.id;
+    const { mockInterviewId } = req.params;
+
+    const result = await MockInterview.findOne({
+      _id: mockInterviewId,
+      candidateId: candidateUserId
+    }).lean();
+
+    if (!result) {
+      return res.status(404).json({ error: 'Mock interview result not found' });
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error getting mock result by id:', error);
+    return res.status(500).json({ error: error.message });
   }
 };
 

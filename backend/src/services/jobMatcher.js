@@ -1,5 +1,5 @@
 const axios = require('axios'); // NEW: Add Axios for microservice communication
-const { getEmbeddingsModel } = require('../config/grok');
+const { getEmbeddingsModel } = require('../config/openai');
 // REMOVED: calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch imports
 // These functions are now handled by the Python NLP microservice
 

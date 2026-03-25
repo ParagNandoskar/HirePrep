@@ -117,9 +117,12 @@ const SignUp = () => {
         registrationData.firstName = firstName
         registrationData.lastName = lastNameParts.join(' ')
       } else {
-        registrationData.companyName = formData.companyName
-        registrationData.industry = formData.industry
-        registrationData.companySize = formData.companySize
+        registrationData.firstName = 'Admin' // Default admin name for company accounts
+        registrationData.profile = {
+          companyName: formData.companyName,
+          industry: formData.industry,
+          companySize: formData.companySize
+        }
       }
 
       const result = await register(registrationData)

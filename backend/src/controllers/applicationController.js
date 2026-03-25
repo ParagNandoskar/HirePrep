@@ -72,8 +72,19 @@ const getApplications = asyncHandler(async (req, res) => {
 
   const total = await Application.countDocuments(filter);
 
+  const sanitizedApplications = applications.map((appDoc) => {
+    const app = appDoc.toObject();
+    app.aiAnalysis = {
+      scores: {
+        overall: app.aiAnalysis?.scores?.overall || app.screeningScore || app.interviewScore || 0
+      }
+    };
+    app.detailedFeedback = undefined;
+    return app;
+  });
+
   return successResponse(res, {
-    applications,
+    applications: sanitizedApplications,
     pagination: {
       current: parseInt(page),
       pages: Math.ceil(total / limit),
@@ -101,7 +112,15 @@ const getApplicationById = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Application not found', 404);
   }
 
-  return successResponse(res, application, 'Application retrieved successfully');
+  const appObj = application.toObject();
+  appObj.aiAnalysis = {
+    scores: {
+      overall: appObj.aiAnalysis?.scores?.overall || appObj.screeningScore || appObj.interviewScore || 0
+    }
+  };
+  appObj.detailedFeedback = undefined;
+
+  return successResponse(res, appObj, 'Application retrieved successfully');
 });
 
 // Update application status (candidate can withdraw)
@@ -274,7 +293,11 @@ const getDetailedFeedback = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Application not found', 404);
   }
   
-  // Check authorization - candidate can only see their own
+  // Check authorization - detailed feedback for real interviews is company-only
+  if (application.companyId.toString() !== userId) {
+    return errorResponse(res, 'Detailed real-interview analysis is available to companies only.', 403);
+  }
+
   if (application.candidateId.toString() !== userId && application.companyId.toString() !== userId) {
     return errorResponse(res, 'Unauthorized access', 403);
   }

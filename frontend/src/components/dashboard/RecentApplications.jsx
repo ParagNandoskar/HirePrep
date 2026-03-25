@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { HiExternalLink } from 'react-icons/hi'
+import { useNavigate } from 'react-router-dom'
 import { candidatesAPI } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 
 const RecentApplications = () => {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [applications, setApplications] = useState([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -48,6 +50,15 @@ const RecentApplications = () => {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
+    })
+  }
+
+  const openApplication = (application) => {
+    navigate('/student-dashboard/applications', {
+      state: {
+        applicationId: application?._id,
+        jobId: application?.job?._id
+      }
     })
   }
 
@@ -123,13 +134,14 @@ const RecentApplications = () => {
                     {formatDate(app.appliedAt)}
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {/* FIX 1: Converted button to span with role="button" */}
-                    <span 
-                      role="button" 
+                    <button
+                      type="button"
+                      onClick={() => openApplication(app)}
+                      aria-label={`Open application for ${app.job?.title || 'job'}`}
                       className="text-primary hover:text-secondary transition-colors cursor-pointer"
                     >
                       <HiExternalLink className="h-4 w-4" />
-                    </span>
+                    </button>
                   </td>
                 </tr>
               ))}

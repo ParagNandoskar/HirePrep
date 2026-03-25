@@ -21,6 +21,10 @@ router.post('/submit-answer', geminiVoiceController.submitAnswer);
 // Complete interview and get analysis
 router.post('/complete', geminiVoiceController.completeInterview);
 
+// Candidate mock interview analytics
+router.get('/mock-results', geminiVoiceController.getMockResults);
+router.get('/mock-results/:mockInterviewId', geminiVoiceController.getMockResultById);
+
 // Get interview progress
 router.get('/progress/:sessionId', geminiVoiceController.getProgress);
 

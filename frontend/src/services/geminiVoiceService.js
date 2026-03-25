@@ -4,12 +4,13 @@ class GeminiVoiceService {
   /**
    * Initialize a new AI voice interview session
    */
-  async initializeInterview(jobId, applicationId, candidateName) {
+  async initializeInterview(jobId, applicationId, candidateName, mockJobDetails = null) {
     try {
       const response = await apiService.post('/gemini-voice/initialize', {
         jobId,
         applicationId,
-        candidateName
+        candidateName,
+        mockJobDetails
       });
       return response;
     } catch (error) {
@@ -128,12 +129,18 @@ class GeminiVoiceService {
   /**
    * Complete interview and get analysis
    */
-  async completeInterview(sessionId, applicationId) {
+  async completeInterview(sessionId, applicationId, proctoringStats = null) {
     try {
-      const response = await apiService.post('/gemini-voice/complete', {
+      const payload = {
         sessionId,
         applicationId
-      });
+      };
+
+      if (proctoringStats) {
+        payload.proctoringStats = proctoringStats;
+      }
+
+      const response = await apiService.post('/gemini-voice/complete', payload);
       return response;
     } catch (error) {
       console.error('Error completing interview:', error);
@@ -150,6 +157,26 @@ class GeminiVoiceService {
       return response;
     } catch (error) {
       console.error('Error getting progress:', error);
+      throw error;
+    }
+  }
+
+  async getMockResults() {
+    try {
+      const response = await apiService.get('/gemini-voice/mock-results');
+      return response;
+    } catch (error) {
+      console.error('Error getting mock results:', error);
+      throw error;
+    }
+  }
+
+  async getMockResultById(mockInterviewId) {
+    try {
+      const response = await apiService.get(`/gemini-voice/mock-results/${mockInterviewId}`);
+      return response;
+    } catch (error) {
+      console.error('Error getting mock result by id:', error);
       throw error;
     }
   }

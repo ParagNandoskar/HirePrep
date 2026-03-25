@@ -34,22 +34,29 @@ const JobLeaderboard = () => {
       
       // Call backend API to get job leaderboard
       const response = await screeningInterviewService.getJobLeaderboard(jobId)
+      const payload = response?.leaderboard ? response : response?.data || {}
+      const candidates = Array.isArray(payload.leaderboard) ? payload.leaderboard : []
+      const apiStats = payload.stats || {
+        totalCandidates: candidates.length,
+        averageScore: 0,
+        topScore: 0
+      }
       
       // Map backend data to frontend format
-      const leaderboardData = response.data.leaderboard.map(candidate => ({
+      const leaderboardData = candidates.map(candidate => ({
         id: candidate.candidateId,
         rank: candidate.rank,
         candidateName: candidate.candidateName,
         candidateEmail: candidate.candidateEmail,
         score: candidate.score,
         interviewDate: candidate.interviewDate,
-        questionsAnswered: 8, // This should come from backend
-        isCurrentUser: candidate.candidateId === user?.id,
+        questionsAnswered: candidate.questionsAnswered || 0,
+        isCurrentUser: String(candidate.candidateId) === String(user?._id || user?.id),
         isTopPerformer: candidate.isTopPerformer
       }))
 
       setLeaderboard(leaderboardData)
-      setStats(response.data.stats)
+      setStats(apiStats)
       
     } catch (error) {
       console.error('Error fetching leaderboard:', error)
@@ -147,21 +154,21 @@ const JobLeaderboard = () => {
   const getRankBadge = (rank) => {
     if (rank === 1) {
       return (
-        <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full shadow-lg">
+        <div className="flex items-center justify-center w-10 h-10 bg-linear-to-br from-yellow-400 to-yellow-600 rounded-full shadow-lg">
           <HiBadgeCheck className="w-6 h-6 text-white" />
         </div>
       )
     }
     if (rank === 2) {
       return (
-        <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-gray-300 to-gray-500 rounded-full shadow-lg">
+        <div className="flex items-center justify-center w-10 h-10 bg-linear-to-br from-gray-300 to-gray-500 rounded-full shadow-lg">
           <HiBadgeCheck className="w-6 h-6 text-white" />
         </div>
       )
     }
     if (rank === 3) {
       return (
-        <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full shadow-lg">
+        <div className="flex items-center justify-center w-10 h-10 bg-linear-to-br from-orange-400 to-orange-600 rounded-full shadow-lg">
           <HiBadgeCheck className="w-6 h-6 text-white" />
         </div>
       )
@@ -218,7 +225,7 @@ const JobLeaderboard = () => {
 
         <div className="bg-white rounded-3xl shadow-lg border-2 border-blue-400 p-8 mb-6">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full mb-4 shadow-lg">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-linear-to-br from-yellow-400 to-yellow-600 rounded-full mb-4 shadow-lg">
               <HiBadgeCheck className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Job-Specific Leaderboard</h1>
@@ -228,19 +235,19 @@ const JobLeaderboard = () => {
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl p-6 text-center">
+            <div className="bg-linear-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl p-6 text-center">
               <HiChartBar className="w-8 h-8 text-blue-600 mx-auto mb-2" />
               <p className="text-3xl font-bold text-blue-900">{stats.totalCandidates}</p>
               <p className="text-sm text-blue-700 font-medium">Total Candidates</p>
             </div>
 
-            <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-xl p-6 text-center">
+            <div className="bg-linear-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-xl p-6 text-center">
               <HiStar className="w-8 h-8 text-green-600 mx-auto mb-2" />
               <p className="text-3xl font-bold text-green-900">{stats.averageScore}</p>
               <p className="text-sm text-green-700 font-medium">Average Score</p>
             </div>
 
-            <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-2 border-yellow-300 rounded-xl p-6 text-center">
+            <div className="bg-linear-to-br from-yellow-50 to-yellow-100 border-2 border-yellow-300 rounded-xl p-6 text-center">
               <HiBadgeCheck className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
               <p className="text-3xl font-bold text-yellow-900">{stats.topScore}</p>
               <p className="text-sm text-yellow-700 font-medium">Top Score</p>
@@ -250,7 +257,7 @@ const JobLeaderboard = () => {
           {/* Info Box */}
           <div className="bg-purple-50 border-l-4 border-purple-500 p-6 rounded-r-xl mb-8">
             <div className="flex items-start">
-              <HiStar className="w-6 h-6 text-purple-600 mt-1 mr-3 flex-shrink-0" />
+              <HiStar className="w-6 h-6 text-purple-600 mt-1 mr-3 shrink-0" />
               <div>
                 <h3 className="font-semibold text-purple-900 mb-2">How Rankings Work</h3>
                 <p className="text-sm text-purple-800">
@@ -268,7 +275,7 @@ const JobLeaderboard = () => {
           {/* Leaderboard Table */}
           <div className="overflow-hidden border-2 border-gray-200 rounded-2xl">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gradient-to-r from-blue-600 to-blue-700">
+              <thead className="bg-linear-to-r from-blue-600 to-blue-700">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-bold text-white uppercase tracking-wider">
                     Rank
@@ -295,7 +302,7 @@ const JobLeaderboard = () => {
                       candidate.isCurrentUser 
                         ? 'bg-blue-50 border-l-4 border-blue-500' 
                         : candidate.rank <= 10 
-                          ? 'bg-gradient-to-r from-green-50 to-white border-l-4 border-green-400' 
+                          ? 'bg-linear-to-r from-green-50 to-white border-l-4 border-green-400'
                           : 'hover:bg-gray-50'
                     } transition-colors`}
                   >
@@ -335,7 +342,7 @@ const JobLeaderboard = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className="text-sm text-gray-900 font-medium">
-                        {candidate.questionsAnswered}/8
+                        {candidate.questionsAnswered}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -352,7 +359,7 @@ const JobLeaderboard = () => {
           {/* Priority Info */}
           <div className="mt-8 bg-green-50 border-l-4 border-green-500 p-6 rounded-r-xl">
             <div className="flex items-start">
-              <HiBadgeCheck className="w-6 h-6 text-green-600 mt-1 mr-3 flex-shrink-0" />
+              <HiBadgeCheck className="w-6 h-6 text-green-600 mt-1 mr-3 shrink-0" />
               <div>
                 <h3 className="font-semibold text-green-900 mb-2">
                   {isEmployer ? 'Top 10 Recommended Candidates' : 'Selection Process'}

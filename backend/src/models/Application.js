@@ -187,6 +187,31 @@ const applicationSchema = new mongoose.Schema({
       confidence: String,
       engagement: String
     },
+    proctoring: {
+      tabSwitches: {
+        type: Number,
+        default: 0
+      },
+      appSwitches: {
+        type: Number,
+        default: 0
+      },
+      totalSwitches: {
+        type: Number,
+        default: 0
+      },
+      proctoringScore: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 100
+      },
+      riskLevel: {
+        type: String,
+        enum: ['low', 'medium', 'high'],
+        default: 'low'
+      }
+    },
     recommendation: String,
     integrityWarning: String,
     questionsAnswered: Number

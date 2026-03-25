@@ -65,6 +65,34 @@ const getProfile = asyncHandler(async (req, res) => {
   return successResponse(res, candidateData, 'Profile retrieved successfully');
 });
 
+// Helper function to normalize skills from simple strings to skill objects
+const normalizeSkills = (skills) => {
+  if (!skills) return [];
+  if (!Array.isArray(skills)) return [];
+
+  return skills.map(skill => {
+    // If it's already an object with name property, use it as-is
+    if (typeof skill === 'object' && skill.name) {
+      return {
+        name: skill.name,
+        level: skill.level || 'Intermediate',
+        yearsOfExperience: skill.yearsOfExperience || 0,
+        source: skill.source || 'manual'
+      };
+    }
+    // If it's just a string, convert it to a skill object
+    if (typeof skill === 'string') {
+      return {
+        name: skill,
+        level: 'Intermediate',
+        yearsOfExperience: 0,
+        source: 'manual'
+      };
+    }
+    return null;
+  }).filter(s => s !== null);
+};
+
 // Update candidate profile
 const updateProfile = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -72,6 +100,11 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   console.log('DEBUG: Updating candidate profile for user:', userId);
   console.log('DEBUG: Update data received:', updateData);
+
+  // Normalize skills if provided
+  if (updateData.skills) {
+    updateData.skills = normalizeSkills(updateData.skills);
+  }
 
   // Find existing candidate or create new one
   let candidate = await Candidate.findOne({ userId });
@@ -107,12 +140,12 @@ const updateProfile = asyncHandler(async (req, res) => {
   }
 
   await candidate.save();
-  
-  // FIX 2: Convert the Mongoose object to a plain JavaScript object before returning.
+
+  // Convert the Mongoose object to a plain JavaScript object before returning.
   const updatedCandidate = candidate.toObject();
 
   console.log('DEBUG: Profile updated successfully');
-  // FIX 3: Return the clean object
+  // Return the clean object
   return successResponse(res, updatedCandidate, 'Profile updated successfully');
 });
 
@@ -164,7 +197,11 @@ const getApplications = asyncHandler(async (req, res) => {
     interviewStatus: app.interviewStatus,
     interviewCompletedAt: app.interviewCompletedAt,
     questionsAnswered: app.questionsAnswered,
-    aiAnalysis: app.aiAnalysis,
+    aiAnalysis: {
+      scores: {
+        overall: app.aiAnalysis?.scores?.overall || app.screeningScore || app.interviewScore || 0
+      }
+    },
     job: {
       _id: app.jobId?._id,
       title: app.jobId?.title,

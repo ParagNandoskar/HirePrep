@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { HiVideoCamera, HiMicrophone, HiPause, HiPlay, HiX, HiCheckCircle, HiChevronRight } from 'react-icons/hi'
 import { interviewService } from '../services/interviewService'
+import { candidatesAPI } from '../services/api'
 
 const LiveInterview = () => {
   const navigate = useNavigate()
@@ -34,6 +35,7 @@ const LiveInterview = () => {
   const [stream, setStream] = useState(null)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [loadedQuestions, setLoadedQuestions] = useState(backendQuestions || [])
+  const [subscriptionPlan, setSubscriptionPlan] = useState('free')
 
   // Sample questions based on type
   const questions = {
@@ -156,27 +158,55 @@ const LiveInterview = () => {
   const totalQuestions = currentQuestions.length
 
   useEffect(() => {
-    // Check if job application mode has required fields
-    if (isJobApplication && (!jobId || !applicationId)) {
-      navigate('/student-dashboard/applications')
-      return
+    const verifySubscription = async () => {
+      try {
+        const response = await candidatesAPI.getProfile()
+        const profile = response?.data || response
+        const plan = profile?.subscription?.plan || 'free'
+        setSubscriptionPlan(plan)
+
+        if (practiceMode && !(plan === 'pro' || plan === 'elite')) {
+          navigate('/student-dashboard/subscription', {
+            state: {
+              message: 'Mock interviews are available on Pro and Elite plans.'
+            }
+          })
+          return false
+        }
+      } catch (error) {
+        console.error('Error verifying subscription:', error)
+      }
+      return true
     }
 
-    // Load questions from backend if not in practice mode
-    if (!practiceMode && interviewId && loadedQuestions.length === 0) {
-      interviewService.getInterviewQuestions(interviewId)
-        .then(response => {
-          if (response.success && response.data && response.data.questions) {
-            setLoadedQuestions(response.data.questions)
-          }
-        })
-        .catch(error => {
-          console.error('Error loading questions:', error)
-          // Continue with mock questions
-        })
+    const initInterview = async () => {
+      const canProceed = await verifySubscription()
+      if (!canProceed) return
+
+      // Check if job application mode has required fields
+      if (isJobApplication && (!jobId || !applicationId)) {
+        navigate('/student-dashboard/applications')
+        return
+      }
+
+      // Load questions from backend if not in practice mode
+      if (!practiceMode && interviewId && loadedQuestions.length === 0) {
+        interviewService.getInterviewQuestions(interviewId)
+          .then(response => {
+            if (response.success && response.data && response.data.questions) {
+              setLoadedQuestions(response.data.questions)
+            }
+          })
+          .catch(error => {
+            console.error('Error loading questions:', error)
+            // Continue with mock questions
+          })
+      }
+
+      startCamera()
     }
 
-    startCamera()
+    initInterview()
 
     return () => {
       if (stream) {

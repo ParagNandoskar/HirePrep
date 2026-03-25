@@ -357,6 +357,19 @@ export const companiesAPI = {
     apiService.put(`/companies/applications/${applicationId}/status`, { status })
 }
 
+// Payments API
+export const paymentsAPI = {
+  createOrder: ({ plan, billingCycle }) => apiService.post('/payments/create-order', { plan, billingCycle }),
+  verifyPayment: ({ plan, billingCycle, razorpay_order_id, razorpay_payment_id, razorpay_signature }) =>
+    apiService.post('/payments/verify', {
+      plan,
+      billingCycle,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    })
+}
+
 // Keep existing legacy APIs for backward compatibility
 export const interviewAPI = {
   getInterviews: () => apiService.get('/interviews'),

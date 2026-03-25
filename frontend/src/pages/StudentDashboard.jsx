@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import StudentSidebar from '../components/dashboard/StudentSidebar'
@@ -7,8 +8,10 @@ import RecentApplications from '../components/dashboard/RecentApplications'
 import { candidatesAPI } from '../services/api'
 
 const StudentDashboard = () => {
+  const navigate = useNavigate()
   const [chartData, setChartData] = useState([])
   const [isLoadingChart, setIsLoadingChart] = useState(true)
+  const [subscriptionPlan, setSubscriptionPlan] = useState('free')
 
   useEffect(() => {
     const fetchChartData = async () => {
@@ -32,6 +35,23 @@ const StudentDashboard = () => {
 
     fetchChartData()
   }, [])
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const response = await candidatesAPI.getProfile()
+        const profile = response?.data || response
+        const plan = profile?.subscription?.plan || 'free'
+        setSubscriptionPlan(plan)
+      } catch (error) {
+        console.error('Error fetching subscription plan:', error)
+      }
+    }
+
+    fetchSubscription()
+  }, [])
+
+  const canUseMockInterviews = subscriptionPlan === 'pro' || subscriptionPlan === 'elite'
 
   const processApplicationsForChart = (applications) => {
     if (!applications || applications.length === 0) {
@@ -78,6 +98,36 @@ const StudentDashboard = () => {
         {/* Main Content Grid */}
         <div>
           <RecentApplications />
+        </div>
+
+        {/* Mock Interview Section */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Mock Interview Practice</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {canUseMockInterviews
+                  ? 'Practice with AI-powered mock interviews to improve before real screenings.'
+                  : 'Mock interviews are available on Pro and Elite plans.'}
+              </p>
+            </div>
+
+            {canUseMockInterviews ? (
+              <button
+                onClick={() => navigate('/student-dashboard/mock-interview')}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-linear-to-r from-blue-600 to-indigo-600 text-white font-semibold hover:from-blue-700 hover:to-indigo-700"
+              >
+                Start Mock Interview
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/student-dashboard/subscription')}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-blue-300 text-blue-700 font-semibold hover:bg-blue-50"
+              >
+                Upgrade to Pro
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Applications vs Time Chart */}

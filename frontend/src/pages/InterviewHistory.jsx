@@ -39,15 +39,7 @@ const InterviewHistory = () => {
             questionsAnswered: interview.completedQuestions || 0,
             totalQuestions: interview.totalQuestions || 5,
             overallScore: interview.finalScore || 0,
-            breakdown: {
-              confidence: interview.scores?.confidence || 0,
-              communication: interview.scores?.communication || 0,
-              technical: interview.scores?.technical || 0,
-              problemSolving: interview.scores?.problemSolving || 0
-            },
-            status: interview.status,
-            strengths: interview.feedback?.strengths || [],
-            improvements: interview.feedback?.improvements || []
+            status: interview.status
           }))
 
           setInterviews(mappedInterviews)
@@ -354,41 +346,15 @@ const InterviewHistory = () => {
                         {interview.difficulty}
                       </span>
                       <span className="text-sm text-gray-600">
-                        {interview.questionsAnswered}/{interview.totalQuestions} questions answered
+                        {interview.totalQuestions && interview.totalQuestions >= interview.questionsAnswered
+                          ? `${interview.questionsAnswered}/${interview.totalQuestions} questions answered`
+                          : `${interview.questionsAnswered} questions answered`}
                       </span>
                     </div>
 
-                    {/* Score Breakdown */}
-                    <div className="grid grid-cols-4 gap-3 mb-4">
-                      {Object.entries(interview.breakdown).map(([key, value]) => (
-                        <div key={key} className="text-center p-2 bg-gray-50 rounded-lg">
-                          <p className="text-xs text-gray-600 mb-1 capitalize">
-                            {key.replace(/([A-Z])/g, ' $1').trim()}
-                          </p>
-                          <p className={`text-lg font-bold ${getScoreColor(value)}`}>{value}%</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Strengths and Improvements */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-xs font-semibold text-green-700 mb-2">✓ Strengths</p>
-                        <ul className="text-xs text-gray-600 space-y-1">
-                          {interview.strengths.slice(0, 2).map((strength, idx) => (
-                            <li key={idx}>• {strength}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-yellow-700 mb-2">→ Improvements</p>
-                        <ul className="text-xs text-gray-600 space-y-1">
-                          {interview.improvements.slice(0, 2).map((improvement, idx) => (
-                            <li key={idx}>• {improvement}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
+                    <p className="text-sm text-gray-500">
+                      Only aggregated score is shown for real interview history.
+                    </p>
                   </div>
 
                   {/* Right Side - Score */}
@@ -402,16 +368,21 @@ const InterviewHistory = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => navigate('/student-dashboard/interview/results', {
+                      onClick={() => navigate('/student-dashboard/screening-interview/results', {
                         state: {
                           applicationId: interview.id,
-                          interviewId: interview.id
+                          interviewId: interview.id,
+                          score: interview.overallScore,
+                          questionsAnswered: interview.questionsAnswered,
+                          totalQuestions: interview.totalQuestions,
+                          jobTitle: interview.role,
+                          companyName: 'Company'
                         }
                       })}
                       className="w-full px-4 py-2 bg-blue-700 text-white text-sm font-semibold rounded-lg hover:bg-blue-800 transition-colors flex items-center justify-center space-x-1"
                     >
                       <HiPlay className="w-4 h-4" />
-                      <span>View Details</span>
+                      <span>View Score</span>
                     </button>
                   </div>
                 </div>

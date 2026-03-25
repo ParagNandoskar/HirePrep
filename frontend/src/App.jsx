@@ -10,11 +10,12 @@ import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerApplicationsReview from './pages/EmployerApplicationsReview'
 import EmployerProfile from './pages/EmployerProfile'
 import LiveInterview from './pages/LiveInterview'
-import InterviewResults from './pages/InterviewResults'
 import InterviewHistory from './pages/InterviewHistory'
+import MockInterviewResults from './pages/MockInterviewResults'
 import Leaderboard from './pages/Leaderboard'
 import ProfileManagement from './pages/ProfileManagement'
 import ResumeManagement from './pages/ResumeManagement'
+import SubscriptionPlans from './pages/SubscriptionPlans'
 import ExploreJobs from './pages/ExploreJobs'
 import JobManagement from './pages/JobManagement'
 import JobManagementEmployer from './pages/JobManagementEmployer'
@@ -22,13 +23,15 @@ import JobForm from './pages/JobForm'
 import JobDetails from './pages/JobDetails'
 import ScreeningInterviewStart from './pages/ScreeningInterviewStart'
 import LiveScreeningInterview from './pages/LiveScreeningInterview'
-import ScreeningInterviewResults from './pages/ScreeningInterviewResults'
 import AIVoiceInterview from './pages/AIVoiceInterview'
 import JobLeaderboard from './pages/JobLeaderboard'
+import RealInterviewScore from './pages/RealInterviewScore'
 import { AppProvider } from './context/AppContext'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import PremiumRoute from './components/PremiumRoute'
 import NotificationContainer from './components/NotificationContainer'
+import MockInterview from './pages/MockInterview'
 
 const App = () => {
   return (
@@ -89,6 +92,11 @@ const App = () => {
                 <ResumeManagement />
               </ProtectedRoute>
             } />
+            <Route path="/student-dashboard/subscription" element={
+              <ProtectedRoute requiredRole="candidate">
+                <SubscriptionPlans />
+              </ProtectedRoute>
+            } />
             <Route path="/student-dashboard/explore-jobs" element={
               <ProtectedRoute requiredRole="candidate">
                 <ExploreJobs />
@@ -96,17 +104,30 @@ const App = () => {
             } />
             <Route path="/student-dashboard/interview/live" element={
               <ProtectedRoute requiredRole="candidate">
-                <LiveInterview />
+                <PremiumRoute>
+                  <LiveInterview />
+                </PremiumRoute>
+              </ProtectedRoute>
+            } />
+            <Route path="/student-dashboard/mock-interview" element={
+              <ProtectedRoute requiredRole="candidate">
+                <PremiumRoute>
+                  <MockInterview />
+                </PremiumRoute>
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/interview/results" element={
               <ProtectedRoute requiredRole="candidate">
-                <InterviewResults />
+                <PremiumRoute>
+                  <MockInterviewResults />
+                </PremiumRoute>
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/results" element={
               <ProtectedRoute requiredRole="candidate">
-                <InterviewResults />
+                <PremiumRoute>
+                  <MockInterviewResults />
+                </PremiumRoute>
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/leaderboard" element={
@@ -116,7 +137,9 @@ const App = () => {
             } />
             <Route path="/student-dashboard/interview-history" element={
               <ProtectedRoute requiredRole="candidate">
-                <InterviewHistory />
+                <PremiumRoute>
+                  <InterviewHistory />
+                </PremiumRoute>
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/screening-interview/start" element={
@@ -131,7 +154,7 @@ const App = () => {
             } />
             <Route path="/student-dashboard/screening-interview/results" element={
               <ProtectedRoute requiredRole="candidate">
-                <ScreeningInterviewResults />
+                <RealInterviewScore />
               </ProtectedRoute>
             } />
             <Route path="/student-dashboard/ai-voice-interview" element={

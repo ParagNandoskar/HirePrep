@@ -54,9 +54,14 @@ const JobManagementEmployer = () => {
 
     // Filter by search query
     if (searchQuery) {
+      const normalizedQuery = searchQuery.toLowerCase()
       filtered = filtered.filter(job =>
-        job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        job.location?.toLowerCase().includes(searchQuery.toLowerCase())
+        job.title?.toLowerCase().includes(normalizedQuery) ||
+        [job.location?.city, job.location?.state, job.location?.country, job.location?.type]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery)
       )
     }
 
@@ -101,12 +106,27 @@ const JobManagementEmployer = () => {
   }
 
   const formatSalary = (min, max, currency = 'USD') => {
-    if (!min && !max) return 'Not specified'
-    const symbol = currency === 'USD' ? '$' : currency
-    if (min && max) {
-      return `${symbol}${(min / 1000).toFixed(0)}K - ${symbol}${(max / 1000).toFixed(0)}K`
+    const hasMin = Number.isFinite(min) && min > 0
+    const hasMax = Number.isFinite(max) && max > 0
+    if (!hasMin && !hasMax) return 'Not specified'
+
+    const formatAmount = (amount) => {
+      try {
+        const locale = currency === 'INR' ? 'en-IN' : 'en-US'
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency,
+          maximumFractionDigits: 0
+        }).format(amount)
+      } catch {
+        return `${currency} ${Number(amount).toLocaleString('en-IN')}`
+      }
     }
-    return min ? `${symbol}${(min / 1000).toFixed(0)}K+` : `Up to ${symbol}${(max / 1000).toFixed(0)}K`
+
+    if (hasMin && hasMax) {
+      return `${formatAmount(min)} - ${formatAmount(max)}`
+    }
+    return hasMin ? `${formatAmount(min)}+` : `Up to ${formatAmount(max)}`
   }
 
   return (

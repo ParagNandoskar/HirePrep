@@ -127,8 +127,8 @@ const EmployerDashboard = () => {
     >
       <div className="space-y-6">
         {/* Welcome Section */}
-        <div className="bg-gradient-to-r from-primary to-secondary rounded-2xl p-6 text-white">
-          <h1 className="text-2xl font-bold mb-2">
+        <div className="bg-linear-to-r from-primary to-secondary rounded-2xl p-6 text-black">
+          <h1 className="text-4xl font-bold">
             Welcome back, {user?.name || 'there'}!
           </h1>
           <p className="text-blue-100">
@@ -224,7 +224,7 @@ const EmployerDashboard = () => {
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Link 
-                            to={`/employer-dashboard/job/${job._id}`}
+                            to={`/employer-dashboard/jobs/${job._id}`}
                             className="text-gray-400 hover:text-blue-600 transition-colors"
                           >
                             <HiExternalLink className="w-5 h-5" />

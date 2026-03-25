@@ -43,37 +43,50 @@ const updateProfile = asyncHandler(async (req, res) => {
   console.log('DEBUG: Updating company profile for user:', userId);
   console.log('DEBUG: Update data received:', updateData);
 
-  // Find existing company or create new one
-  let company = await Company.findOne({ userId });
-
-  if (!company) {
-    // Create new company profile
+  try {
+    // Get user info for defaults
     const user = await User.findById(userId);
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
 
-    company = new Company({
-      userId: userId,
-      companyName: updateData.companyName || user.profile?.companyName || '',
-      email: updateData.email || user.email,
-      industry: updateData.industry || user.profile?.industry || '',
-      companySize: updateData.companySize || user.profile?.companySize || '1-10',
-      ...updateData
-    });
-  } else {
-    // Update existing company
-    Object.keys(updateData).forEach(key => {
-      if (key !== 'userId') { // Don't allow userId to be changed
-        company[key] = updateData[key];
+    // Filter out userId and email from updateData to prevent overrides
+    const { userId: _, email: __, ...cleanUpdateData } = updateData;
+
+    // Use findOneAndUpdate with upsert to safely create or update
+    const company = await Company.findOneAndUpdate(
+      { userId: userId },
+      {
+        userId: userId,
+        email: user.email, // Ensure email is always the user's email
+        ...cleanUpdateData
+      },
+      {
+        upsert: true, // Create if doesn't exist
+        new: true,    // Return updated document
+        runValidators: true,
+        setDefaultsOnInsert: true
       }
-    });
+    );
+
+    console.log('DEBUG: Company profile updated successfully');
+    return successResponse(res, company, 'Company profile updated successfully');
+  } catch (error) {
+    console.error('DEBUG: Error updating company profile:', error);
+
+    // Handle duplicate key errors specifically
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue || {})[0];
+      if (field === 'email') {
+        return errorResponse(res, 'This email is already associated with another company. Please use a different email or contact support.', 400);
+      }
+      if (field === 'userId') {
+        return errorResponse(res, 'Company profile already exists for this user', 400);
+      }
+    }
+
+    throw error; // Let global error handler deal with it
   }
-
-  await company.save();
-
-  console.log('DEBUG: Company profile updated successfully');
-  return successResponse(res, company, 'Company profile updated successfully');
 });
 
 // Upload company logo
@@ -139,7 +152,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     candidateName: app.candidateId?.name || 'Unknown',
     role: app.jobId?.title || 'Unknown Position',
     status: formatStatus(app.status),
-    score: app.matchScore?.overall ? `${Math.round(app.matchScore.overall)}%` : 'N/A'
+    score: (app.screeningScore ?? app.interviewScore ?? app.matchScore?.overall) != null
+      ? `${Math.round(app.screeningScore ?? app.interviewScore ?? app.matchScore.overall)}%`
+      : 'N/A'
   }));
 
   // Format applications by status for pie chart
@@ -185,6 +200,7 @@ const formatStatus = (status) => {
     'shortlisted': 'Shortlisted',
     'interview-scheduled': 'Interview Scheduled',
     'interviewing': 'Interviewing',
+    'interviewed': 'Interviewed',
     'rejected': 'Rejected',
     'hired': 'Hired'
   };

@@ -12,10 +12,59 @@ const {
 } = require("../utils/helpers");
 const { asyncHandler } = require("../middlewares/errorHandler");
 
+// Remove UI-only fields and normalize nested arrays before persisting.
+const sanitizeJobPayload = (payload = {}) => {
+  const sanitized = { ...payload };
+
+  if (typeof payload.location === "string") {
+    sanitized.location = {
+      type: "on-site",
+      country: payload.location || "United States",
+    };
+  }
+
+  if (Array.isArray(payload.interviewQuestions)) {
+    sanitized.interviewQuestions = payload.interviewQuestions
+      .map((q) => ({
+        question: (q?.question || "").trim(),
+        expectedAnswer: (q?.expectedAnswer || "").trim(),
+        timeLimit: Math.max(1, Math.min(10, parseInt(q?.timeLimit, 10) || 2)),
+      }))
+      .filter((q) => q.question.length > 0);
+  }
+
+  if (Array.isArray(payload?.requirements?.skills)) {
+    sanitized.requirements = {
+      ...payload.requirements,
+      skills: payload.requirements.skills
+        .map((skill) => {
+          if (typeof skill === "string") {
+            return {
+              name: skill.trim(),
+              level: "Intermediate",
+              isRequired: true,
+              weight: 5,
+            };
+          }
+
+          return {
+            name: (skill?.name || "").trim(),
+            level: skill?.level || "Intermediate",
+            isRequired: typeof skill?.isRequired === "boolean" ? skill.isRequired : true,
+            weight: Number.isFinite(skill?.weight) ? skill.weight : 5,
+          };
+        })
+        .filter((skill) => skill.name.length > 0),
+    };
+  }
+
+  return sanitized;
+};
+
 // Create new job (company endpoint - compatible with frontend API)
 const createJob = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const jobData = req.body;
+  const jobData = sanitizeJobPayload(req.body);
 
   console.log("DEBUG: Creating job for company:", userId);
   console.log("DEBUG: Job data received:", jobData); // Verify user is a company
@@ -145,15 +194,15 @@ const getAllJobs = asyncHandler(async (req, res) => {
   // Check if user has applied to these jobs
   let jobsWithApplicationStatus = jobs;
   if (req.user && req.user.id) {
-    const jobIds = jobs.map(job => job._id);
+    const jobIds = jobs.map((job) => job._id);
     const applications = await Application.find({
       candidateId: req.user.id,
-      jobId: { $in: jobIds }
-    }).select('jobId');
-    
-    const appliedJobIds = new Set(applications.map(app => app.jobId.toString()));
-    
-    jobsWithApplicationStatus = jobs.map(job => {
+      jobId: { $in: jobIds },
+    }).select("jobId");
+
+    const appliedJobIds = new Set(applications.map((app) => app.jobId.toString()));
+
+    jobsWithApplicationStatus = jobs.map((job) => {
       const jobObj = job.toObject();
       jobObj.hasApplied = appliedJobIds.has(job._id.toString());
       return jobObj;
@@ -377,7 +426,7 @@ const getRecommendedJobs = asyncHandler(async (req, res) => {
 const updateJob = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
-  const updateData = req.body;
+  const updateData = sanitizeJobPayload(req.body);
 
   const job = await Job.findOne({ _id: id, companyId: userId });
   if (!job) {
@@ -478,77 +527,70 @@ const getMatchedJobs = asyncHandler(async (req, res) => {
     return errorResponse(res, "Candidate profile not found", 404);
   }
 
-  // Basic matching based on skills
-  const candidateSkills = candidate.skills.map(skill => skill.name.toLowerCase());
-  
-  // Build base filter for skill matching
-  const filter = {
-    status: 'active',
-    'requirements.skills.name': { 
-      $in: candidateSkills.map(skill => new RegExp(skill, 'i')) 
-    }
-  };
+  const candidateSkills = (candidate.skills || []).map((skill) => skill.name.toLowerCase());
+  const requestedSkills = skills
+    ? (Array.isArray(skills) ? skills : skills.split(",")).map((skill) => skill.trim().toLowerCase()).filter(Boolean)
+    : [];
+  const allSkills = [...new Set([...candidateSkills, ...requestedSkills])];
 
-  // Apply additional filters (same logic as getAllJobs)
+  const andFilters = [{ status: "active" }];
+
+  if (allSkills.length > 0) {
+    const skillRegexes = allSkills.map((skill) => new RegExp(skill, "i"));
+    andFilters.push({
+      $or: [
+        { "requirements.skills.name": { $in: skillRegexes } },
+        { "requirements.skills.0": { $exists: false } },
+      ],
+    });
+  }
+
   if (location && location !== "all") {
-    filter.$or = [
-      { "location.city": new RegExp(location, "i") },
-      { "location.state": new RegExp(location, "i") },
-      { "location.country": new RegExp(location, "i") },
-    ];
+    andFilters.push({
+      $or: [
+        { "location.city": new RegExp(location, "i") },
+        { "location.state": new RegExp(location, "i") },
+        { "location.country": new RegExp(location, "i") },
+      ],
+    });
   }
 
   if (type && type !== "all") {
-    filter["jobDetails.type"] = type;
+    andFilters.push({ "jobDetails.type": type });
   }
 
   if (level && level !== "all") {
-    filter["jobDetails.level"] = level;
+    andFilters.push({ "jobDetails.level": level });
   }
 
   if (locationType && locationType !== "all") {
-    filter["location.type"] = locationType;
+    andFilters.push({ "location.type": locationType });
   }
 
   if (keyword) {
-    const keywordFilter = [
-      { title: new RegExp(keyword, "i") },
-      { description: new RegExp(keyword, "i") },
-      { "requirements.skills.name": new RegExp(keyword, "i") },
-      { tags: new RegExp(keyword, "i") },
-    ];
-    
-    // Combine with existing $or filter if it exists
-    if (filter.$or) {
-      filter.$and = [
-        { $or: filter.$or },
-        { $or: keywordFilter }
-      ];
-      delete filter.$or;
-    } else {
-      filter.$or = keywordFilter;
-    }
+    andFilters.push({
+      $or: [
+        { title: new RegExp(keyword, "i") },
+        { description: new RegExp(keyword, "i") },
+        { "requirements.skills.name": new RegExp(keyword, "i") },
+        { tags: new RegExp(keyword, "i") },
+      ],
+    });
   }
 
-  if (skills) {
-    const skillsArray = Array.isArray(skills) ? skills : skills.split(",");
-    // Add to existing skills filter
-    const additionalSkills = skillsArray.map((skill) => new RegExp(skill.trim(), "i"));
-    filter["requirements.skills.name"].$in = [...filter["requirements.skills.name"].$in, ...additionalSkills];
+  if (minSalary) {
+    andFilters.push({ "compensation.salaryRange.min": { $gte: parseInt(minSalary, 10) } });
   }
 
-  if (minSalary || maxSalary) {
-    if (minSalary) {
-      filter["compensation.salaryRange.min"] = { $gte: parseInt(minSalary) };
-    }
-    if (maxSalary) {
-      filter["compensation.salaryRange.max"] = { $lte: parseInt(maxSalary) };
-    }
+  if (maxSalary) {
+    andFilters.push({ "compensation.salaryRange.max": { $lte: parseInt(maxSalary, 10) } });
   }
 
   if (postedAfter) {
-    filter.postedDate = { $gte: new Date(postedAfter) };
+    andFilters.push({ postedDate: { $gte: new Date(postedAfter) } });
   }
+
+  const filter = andFilters.length === 1 ? andFilters[0] : { $and: andFilters };
 
   console.log("DEBUG: Matched jobs filter:", JSON.stringify(filter, null, 2));
   

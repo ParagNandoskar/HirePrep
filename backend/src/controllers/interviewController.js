@@ -1031,7 +1031,7 @@ const getJobLeaderboard = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // Get all completed screening interviews for this job
+    // Source A: legacy/new screening Interview documents
     const interviews = await Interview.find({
       jobId,
       type: 'screening',
@@ -1041,22 +1041,73 @@ const getJobLeaderboard = asyncHandler(async (req, res) => {
     .sort({ score: -1 }) // Sort by score descending
     .select('studentId score endTime');
 
-    // Format leaderboard data
-    const leaderboard = interviews.map((interview, index) => ({
+    // Source B: application-level screening scores (used by AI voice interview flow)
+    const applications = await Application.find({
+      jobId,
+      interviewCompleted: true,
+      screeningScore: { $exists: true, $ne: null }
+    })
+    .populate('candidateId', 'name email profile')
+    .sort({ screeningScore: -1 })
+    .select('candidateId screeningScore interviewCompletedAt questionsAnswered');
+
+    // Merge by candidateId so a candidate appears only once.
+    const mergedByCandidate = new Map();
+
+    interviews.forEach((interview) => {
+      if (!interview.studentId?._id) return;
+      const key = interview.studentId._id.toString();
+      mergedByCandidate.set(key, {
+        candidateId: interview.studentId._id,
+        candidateName: interview.studentId.name || 'Candidate',
+        candidateEmail: interview.studentId.email || '',
+        score: interview.score || 0,
+        interviewDate: interview.endTime,
+        questionsAnswered: 0,
+        source: 'interview'
+      });
+    });
+
+    applications.forEach((application) => {
+      if (!application.candidateId?._id) return;
+      const key = application.candidateId._id.toString();
+
+      const candidateFromApplication = {
+        candidateId: application.candidateId._id,
+        candidateName: application.candidateId.name || 'Candidate',
+        candidateEmail: application.candidateId.email || '',
+        score: application.screeningScore || 0,
+        interviewDate: application.interviewCompletedAt,
+        questionsAnswered: application.questionsAnswered || 0,
+        source: 'application'
+      };
+
+      const existing = mergedByCandidate.get(key);
+      if (!existing || candidateFromApplication.score > existing.score) {
+        mergedByCandidate.set(key, candidateFromApplication);
+      }
+    });
+
+    // Final ranking list
+    const rankedCandidates = Array.from(mergedByCandidate.values())
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    const leaderboard = rankedCandidates.map((candidate, index) => ({
       rank: index + 1,
-      candidateId: interview.studentId._id,
-      candidateName: interview.studentId.name,
-      candidateEmail: interview.studentId.email,
-      score: interview.score,
-      interviewDate: interview.endTime,
-      isTopPerformer: index < 10, // Top 10 are recommended to company
+      candidateId: candidate.candidateId,
+      candidateName: candidate.candidateName,
+      candidateEmail: candidate.candidateEmail,
+      score: candidate.score,
+      interviewDate: candidate.interviewDate,
+      questionsAnswered: candidate.questionsAnswered,
+      isTopPerformer: index < 10,
       isRecommendedToCompany: index < 10
     }));
 
     // Calculate statistics
-    const scores = interviews.map(i => i.score);
+    const scores = rankedCandidates.map((c) => c.score || 0);
     const stats = {
-      totalCandidates: interviews.length,
+      totalCandidates: rankedCandidates.length,
       averageScore: scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0,
       topScore: scores.length > 0 ? Math.max(...scores) : 0,
       medianScore: scores.length > 0 ? scores[Math.floor(scores.length / 2)] : 0

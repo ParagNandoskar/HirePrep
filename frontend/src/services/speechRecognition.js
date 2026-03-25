@@ -18,6 +18,11 @@ class SpeechRecognitionService {
     this.recognition = new SpeechRecognition();
     this.isListening = false;
     this.transcript = '';
+    this.finalTranscript = '';
+    this.latestInterimTranscript = '';
+    this.manualStop = false;
+    this.shouldKeepAlive = false;
+    this.restartTimeout = null;
     
     // Configure recognition
     this.recognition.continuous = true; // Keep listening
@@ -37,30 +42,58 @@ class SpeechRecognitionService {
   setupListeners() {
     this.recognition.onresult = (event) => {
       let interimTranscript = '';
-      let finalTranscript = '';
+      let newFinalTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
+          newFinalTranscript += transcript + ' ';
         } else {
           interimTranscript += transcript;
         }
       }
 
-      this.transcript = finalTranscript + interimTranscript;
+      if (newFinalTranscript.trim()) {
+        this.finalTranscript = `${this.finalTranscript} ${newFinalTranscript.trim()}`.trim();
+      }
+      this.latestInterimTranscript = interimTranscript.trim();
+      this.transcript = `${this.finalTranscript} ${interimTranscript}`.trim();
 
       if (this.onResultCallback) {
         this.onResultCallback({
-          transcript: this.transcript,
-          isFinal: finalTranscript.length > 0,
+          transcript: this.finalTranscript.trim(),
+          fullTranscript: this.transcript,
+          isFinal: newFinalTranscript.length > 0,
           interim: interimTranscript
         });
       }
     };
 
     this.recognition.onend = () => {
+      if (this.shouldKeepAlive && !this.manualStop) {
+        if (this.latestInterimTranscript) {
+          this.finalTranscript = `${this.finalTranscript} ${this.latestInterimTranscript}`.trim();
+          this.latestInterimTranscript = '';
+        }
+        this.finalTranscript = `${this.finalTranscript} [pause]`.trim();
+        this.transcript = this.finalTranscript;
+
+        if (this.onResultCallback) {
+          this.onResultCallback({
+            transcript: this.finalTranscript,
+            fullTranscript: this.transcript,
+            isFinal: true,
+            interim: ''
+          });
+        }
+
+        this.restartTimeout = setTimeout(() => {
+          this._startRecognition(false);
+        }, 200);
+        return;
+      }
+
       this.isListening = false;
       if (this.onEndCallback) {
         this.onEndCallback();
@@ -69,7 +102,14 @@ class SpeechRecognitionService {
 
     this.recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
+      const recoverable = event.error === 'no-speech' || event.error === 'aborted';
+
+      if (recoverable && this.shouldKeepAlive && !this.manualStop) {
+        return;
+      }
+
       this.isListening = false;
+      this.shouldKeepAlive = false;
       
       if (this.onErrorCallback) {
         this.onErrorCallback(event.error);
@@ -80,6 +120,26 @@ class SpeechRecognitionService {
       // Auto-stop after silence
       console.log('Speech ended');
     };
+  }
+
+  _startRecognition(resetTranscript = false) {
+    if (!this.supported) return false;
+
+    if (resetTranscript) {
+      this.finalTranscript = '';
+      this.transcript = '';
+      this.latestInterimTranscript = '';
+    }
+
+    try {
+      this.recognition.start();
+      this.isListening = true;
+      return true;
+    } catch (error) {
+      console.error('Failed to start speech recognition:', error);
+      this.isListening = false;
+      return false;
+    }
   }
 
   start(callbacks = {}) {
@@ -103,24 +163,30 @@ class SpeechRecognitionService {
     this.onEndCallback = callbacks.onEnd;
     this.onErrorCallback = callbacks.onError;
 
-    // Reset transcript
-    this.transcript = '';
+    this.shouldKeepAlive = true;
+    this.manualStop = false;
 
-    try {
-      this.recognition.start();
-      this.isListening = true;
-      console.log('🎤 Speech recognition started');
-      return true;
-    } catch (error) {
-      console.error('Failed to start speech recognition:', error);
-      this.isListening = false;
-      return false;
-    }
+    const started = this._startRecognition(true);
+    if (started) console.log('🎤 Speech recognition started');
+    return started;
   }
 
   stop() {
-    if (!this.isListening) {
-      return this.transcript;
+    this.shouldKeepAlive = false;
+    this.manualStop = true;
+
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+
+    if (!this.isListening) return this.finalTranscript.trim();
+
+    // Preserve latest interim chunk when user manually stops before finalization.
+    if (this.latestInterimTranscript) {
+      this.finalTranscript = `${this.finalTranscript} ${this.latestInterimTranscript}`.trim();
+      this.latestInterimTranscript = '';
+      this.transcript = this.finalTranscript;
     }
 
     try {
@@ -132,7 +198,7 @@ class SpeechRecognitionService {
       this.isListening = false;
     }
 
-    return this.transcript;
+    return this.finalTranscript.trim();
   }
 
   getTranscript() {

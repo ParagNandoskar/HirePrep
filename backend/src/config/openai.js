@@ -21,6 +21,20 @@ const openai = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1'
 });
 
+// Deterministic lightweight vector fallback when provider embeddings are unavailable.
+const textToDeterministicVector = (text = '', dim = 128) => {
+  const vector = new Array(dim).fill(0);
+  const normalized = String(text).toLowerCase();
+
+  for (let i = 0; i < normalized.length; i++) {
+    const code = normalized.charCodeAt(i);
+    vector[i % dim] += ((code % 31) - 15) / 15;
+  }
+
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => value / norm);
+};
+
 /**
  * Get OpenAI model instance (using Grok backend)
  * @param {string} modelName - Model name (default from GROK_MODEL_NAME env variable)
@@ -45,6 +59,13 @@ const getOpenAIModel = (modelName = GROK_MODEL_NAME) => {
       return {
         response: {
           text: () => text
+        }
+      };
+    },
+    embedContent: async (text) => {
+      return {
+        embedding: {
+          values: textToDeterministicVector(text)
         }
       };
     }
@@ -103,5 +124,9 @@ module.exports = {
   getOpenAIFlashLite,
   getOpenAIFlash,
   getEmbeddingsModel,
+  // Compatibility aliases for legacy imports.
+  getGrokModel: getOpenAIModel,
+  getGrokFlashLite: getOpenAIFlashLite,
+  getGrokFlash: getOpenAIFlash,
   GROK_MODEL_NAME
 };

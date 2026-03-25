@@ -62,17 +62,112 @@ const JobForm = () => {
     }
   }, [jobId])
 
+  const mapJobToFormData = (job = {}) => {
+    const locationTypeFromApi = (job.location?.type || '').toLowerCase()
+    const uiLocationType = locationTypeFromApi === 'on-site'
+      ? 'On-site'
+      : locationTypeFromApi === 'hybrid'
+        ? 'Hybrid'
+        : 'Remote'
+
+    const locationText = [job.location?.city, job.location?.state, job.location?.country]
+      .filter(Boolean)
+      .join(', ')
+
+    return {
+      title: job.title || '',
+      description: job.description || '',
+      location: locationText,
+      jobType: job.jobDetails?.type || job.jobType || 'full-time',
+      experienceLevel: job.jobDetails?.level || job.experienceLevel || 'mid',
+      requirements: {
+        skills: (job.requirements?.skills || []).map((skill) => ({
+          name: typeof skill === 'string' ? skill : (skill.name || ''),
+          required: typeof skill?.isRequired === 'boolean' ? skill.isRequired : true,
+          experience: skill?.level || skill?.experience || 'mid'
+        })).filter((skill) => skill.name),
+        education: {
+          degree: job.requirements?.education?.minimumLevel || job.requirements?.education?.degree || "Bachelor's",
+          field: job.requirements?.education?.field || '',
+          required: Boolean(job.requirements?.education?.isRequired)
+        },
+        experience: {
+          minYears: job.requirements?.experience?.minimumYears || job.requirements?.experience?.minYears || 0,
+          maxYears: job.requirements?.experience?.maximumYears || job.requirements?.experience?.maxYears || 10,
+          industries: job.requirements?.experience?.industries || []
+        },
+        location: {
+          type: uiLocationType,
+          remote: locationTypeFromApi === 'remote',
+          hybrid: locationTypeFromApi === 'hybrid'
+        }
+      },
+      compensation: {
+        salaryMin: job.compensation?.salaryRange?.min || job.compensation?.salaryMin || '',
+        salaryMax: job.compensation?.salaryRange?.max || job.compensation?.salaryMax || '',
+        currency: job.compensation?.salaryRange?.currency || job.compensation?.currency || 'USD',
+        benefits: Array.isArray(job.compensation?.benefits) ? job.compensation.benefits : []
+      },
+      applicationDeadline: job.applicationProcess?.applicationDeadline
+        ? new Date(job.applicationProcess.applicationDeadline).toISOString().split('T')[0]
+        : (job.applicationDeadline ? new Date(job.applicationDeadline).toISOString().split('T')[0] : ''),
+      tags: job.tags || [],
+      status: job.status || 'draft',
+      interviewQuestions: (job.interviewQuestions || []).map((q, index) => ({
+        tempKey: q._id || `existing-${index}`,
+        question: q.question || '',
+        expectedAnswer: q.expectedAnswer || '',
+        timeLimit: q.timeLimit || 2,
+        type: 'custom'
+      }))
+    }
+  }
+
+  const parseLocationString = (locationText = '') => {
+    const parts = String(locationText)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    if (parts.length >= 3) {
+      return {
+        city: parts[0],
+        state: parts[1],
+        country: parts.slice(2).join(', ')
+      }
+    }
+
+    if (parts.length === 2) {
+      return {
+        city: parts[0],
+        country: parts[1]
+      }
+    }
+
+    if (parts.length === 1) {
+      return {
+        country: parts[0]
+      }
+    }
+
+    return {}
+  }
+
+  const getBackendLocationType = (uiType = '') => {
+    const normalized = String(uiType).toLowerCase()
+    if (normalized === 'on-site' || normalized === 'onsite') return 'on-site'
+    if (normalized === 'hybrid') return 'hybrid'
+    return 'remote'
+  }
+
   const fetchJobDetails = async () => {
     try {
       setIsLoading(true)
       const response = await jobsAPI.getJob(jobId)
-      if (response && response.job) {
-        setFormData({
-          ...response.job,
-          applicationDeadline: response.job.applicationDeadline 
-            ? new Date(response.job.applicationDeadline).toISOString().split('T')[0]
-            : ''
-        })
+      const job = response?.data || response?.job
+
+      if (job) {
+        setFormData(mapJobToFormData(job))
       }
     } catch (error) {
       console.error('Error fetching job:', error)
@@ -186,12 +281,13 @@ const JobForm = () => {
       alert('Please enter a question')
       return
     }
+    const tempKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     setFormData(prev => ({
       ...prev,
       interviewQuestions: [
         ...prev.interviewQuestions,
         {
-          id: Date.now(),
+          tempKey,
           question: questionInput.question.trim(),
           expectedAnswer: questionInput.expectedAnswer.trim(),
           timeLimit: parseInt(questionInput.timeLimit) || 2,
@@ -202,10 +298,10 @@ const JobForm = () => {
     setQuestionInput({ question: '', expectedAnswer: '', timeLimit: 2 })
   }
 
-  const removeInterviewQuestion = (id) => {
+  const removeInterviewQuestion = (tempKey) => {
     setFormData(prev => ({
       ...prev,
-      interviewQuestions: prev.interviewQuestions.filter(q => q.id !== id)
+      interviewQuestions: prev.interviewQuestions.filter(q => q.tempKey !== tempKey)
     }))
   }
 
@@ -224,15 +320,74 @@ const JobForm = () => {
 
     try {
       setIsSaving(true)
+
+      const parsedLocation = parseLocationString(formData.location)
+      const locationType = getBackendLocationType(formData.requirements?.location?.type)
       
       const submitData = {
-        ...formData,
+        title: formData.title,
+        description: formData.description,
         status: isDraft ? 'draft' : 'active',
+        jobDetails: {
+          type: formData.jobType || 'full-time',
+          level: formData.experienceLevel || 'mid'
+        },
+        location: {
+          type: locationType,
+          country: parsedLocation.country || 'United States',
+          ...(parsedLocation.city && { city: parsedLocation.city }),
+          ...(parsedLocation.state && { state: parsedLocation.state })
+        },
+        requirements: {
+          skills: (formData.requirements?.skills || []).map((skill) => ({
+            name: (skill.name || '').trim(),
+            level: 'Intermediate',
+            isRequired: true,
+            weight: 5
+          })).filter((skill) => skill.name),
+          education: {
+            minimumLevel: (() => {
+              const map = {
+                "High School": 'High School',
+                "Associate's": 'Associate',
+                Associate: 'Associate',
+                "Bachelor's": 'Bachelor',
+                Bachelor: 'Bachelor',
+                "Master's": 'Master',
+                Master: 'Master',
+                PhD: 'Doctorate',
+                Doctorate: 'Doctorate'
+              }
+              return map[formData.requirements?.education?.degree] || 'Bachelor'
+            })(),
+            field: formData.requirements?.education?.field || '',
+            isRequired: Boolean(formData.requirements?.education?.required)
+          },
+          experience: {
+            minimumYears: Number(formData.requirements?.experience?.minYears) || 0,
+            maximumYears: Number(formData.requirements?.experience?.maxYears) || undefined,
+            industries: formData.requirements?.experience?.industries || []
+          }
+        },
+        interviewQuestions: (formData.interviewQuestions || []).map((q) => ({
+          question: q.question,
+          expectedAnswer: q.expectedAnswer,
+          timeLimit: parseInt(q.timeLimit) || 2
+        })),
         compensation: {
-          ...formData.compensation,
-          salaryMin: parseInt(formData.compensation.salaryMin) || undefined,
-          salaryMax: parseInt(formData.compensation.salaryMax) || undefined
-        }
+          salaryRange: {
+            min: parseInt(formData.compensation.salaryMin) || 0,
+            max: parseInt(formData.compensation.salaryMax) || 0,
+            currency: formData.compensation.currency || 'USD'
+          },
+          benefits: Array.isArray(formData.compensation.benefits)
+            ? formData.compensation.benefits
+            : []
+        },
+        applicationProcess: {
+          ...(formData.applicationDeadline && { applicationDeadline: formData.applicationDeadline })
+        },
+        tags: formData.tags || []
       }
 
       if (isEditMode) {
@@ -653,12 +808,12 @@ const JobForm = () => {
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-gray-700">Added Questions ({formData.interviewQuestions.length})</h4>
                   {formData.interviewQuestions.map((q, index) => (
-                    <div key={q.id} className="border border-gray-300 rounded-lg p-4 bg-white">
+                    <div key={q.tempKey || q._id || index} className="border border-gray-300 rounded-lg p-4 bg-white">
                       <div className="flex items-start justify-between mb-2">
                         <span className="text-xs font-semibold text-blue-600">Question {index + 1}</span>
                         <button
                           type="button"
-                          onClick={() => removeInterviewQuestion(q.id)}
+                          onClick={() => removeInterviewQuestion(q.tempKey)}
                           className="text-red-600 hover:text-red-800"
                         >
                           <HiX className="w-5 h-5" />

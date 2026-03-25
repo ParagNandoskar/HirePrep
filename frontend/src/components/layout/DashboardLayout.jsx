@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HiMenu, HiX, HiSearch, HiChevronDown, HiLogout, HiUser } from 'react-icons/hi'
 import { useAuth } from '../../context/AuthContext'
+import { candidatesAPI } from '../../services/api'
 
-const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => {
+const DashboardLayout = ({ children, sidebarContent, userType = 'student', focusMode = false, hideSidebar = false }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false)
+  const [activePlan, setActivePlan] = useState(null)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const dropdownRef = useRef(null)
@@ -46,9 +48,39 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
     }
   }, [])
 
+  useEffect(() => {
+    const shouldLoadCandidatePlan = user?.role !== 'employer' && userType !== 'employer'
+    if (!shouldLoadCandidatePlan) {
+      setActivePlan(null)
+      return
+    }
+
+    let isMounted = true
+    const loadCandidatePlan = async () => {
+      try {
+        const response = await candidatesAPI.getProfile()
+        const profile = response?.data || response
+        const plan = profile?.subscription?.plan || 'free'
+        if (isMounted) {
+          setActivePlan(String(plan).toUpperCase())
+        }
+      } catch (error) {
+        if (isMounted) {
+          setActivePlan('FREE')
+        }
+      }
+    }
+
+    loadCandidatePlan()
+    return () => {
+      isMounted = false
+    }
+  }, [user?.role, userType])
+
   return (
     <div className="min-h-screen bg-[#0035661A] flex">
       {/* Sidebar */}
+      {!hideSidebar && (
       <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg rounded-r-4xl transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
@@ -74,9 +106,10 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
           {sidebarContent}
         </div>
       </div>
+      )}
 
       {/* Overlay for mobile */}
-      {isSidebarOpen && (
+      {!hideSidebar && isSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/10 bg-opacity-50 lg:hidden"
           onClick={toggleSidebar}
@@ -86,6 +119,7 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
       {/* Main Content */}
       <div className="flex-1 lg:ml-0">
         {/* Top Header */}
+        {!focusMode && (
         <header className=" h-16 flex items-center justify-between px-4 lg:px-6">
           {/* Left side - Mobile menu button and title */}
           <div className="flex items-center">
@@ -133,8 +167,13 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
                   <div className="text-sm font-medium text-gray-900">
                     {user?.name || 'User'}
                   </div>
-                  <div className="text-xs text-gray-500 capitalize">
-                    {user?.role || userType}
+                  <div className="text-xs text-gray-500 capitalize flex items-center gap-2">
+                    <span>{user?.role || userType}</span>
+                    {activePlan && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-emerald-700">
+                        {activePlan}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <HiChevronDown className="w-4 h-4 text-gray-500" />
@@ -153,6 +192,11 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
                     <div className="text-xs text-gray-400 capitalize">
                       {user?.role || userType} Account
                     </div>
+                    {activePlan && (
+                      <div className="mt-1 text-[11px] font-semibold text-emerald-700">
+                        Active Plan: {activePlan}
+                      </div>
+                    )}
                   </div>
                   
                   <button
@@ -177,9 +221,10 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student' }) => 
             </div>
           </div>
         </header>
+        )}
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4 lg:p-6">
+        <main className={focusMode ? 'flex-1 p-3 lg:p-4' : 'flex-1 p-4 lg:p-6'}>
           {children}
         </main>
       </div>

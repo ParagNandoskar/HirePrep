@@ -1,5 +1,7 @@
-const { getGrokFlash } = require('../config/grok');
+const { getOpenAIFlash } = require('../config/openai');
 const Job = require('../models/Job');
+const Application = require('../models/Application');
+const Candidate = require('../models/Candidate');
 const googleTTSService = require('./googleTTSService');
 const interviewAggregationService = require('./interviewAggregationService');
 const QuestionAnalysis = require('../models/QuestionAnalysis');
@@ -7,14 +9,34 @@ const QuestionAnalysis = require('../models/QuestionAnalysis');
 class GeminiVoiceInterviewService {
   constructor() {
     this.activeInterviews = new Map();
+    this.MIN_BASELINE_QUESTIONS = 3;
+    this.MAX_FOLLOWUPS_PER_PRIMARY = 2;
+    this.MAX_TOTAL_QUESTIONS = 10;
   }
 
   /**
    * Initialize a new AI voice interview session
    */
-  async initializeInterview(jobId, candidateName) {
+  async initializeInterview(jobId, candidateName, options = {}) {
     try {
       let interviewContext;
+      const { applicationId, candidateUserId, mockJobDetails } = options;
+
+      let resolvedCandidateUserId = candidateUserId || null;
+      if (!resolvedCandidateUserId && applicationId) {
+        const application = await Application.findById(applicationId).select('candidateId').lean();
+        resolvedCandidateUserId = application?.candidateId || null;
+      }
+
+      let resumeSkills = [];
+      if (resolvedCandidateUserId) {
+        const candidate = await Candidate.findOne({ userId: resolvedCandidateUserId })
+          .select('skills')
+          .lean();
+        resumeSkills = (candidate?.skills || [])
+          .map((skill) => (typeof skill === 'string' ? skill : skill?.name))
+          .filter(Boolean);
+      }
 
       if (jobId && jobId !== 'practice') {
         // Real job application interview
@@ -23,25 +45,67 @@ class GeminiVoiceInterviewService {
           throw new Error('Job not found');
         }
 
+        const requiredSkills = (job.requirements?.skills || [])
+          .map((skill) => (typeof skill === 'string' ? skill : skill?.name))
+          .filter(Boolean);
+
         interviewContext = {
           jobTitle: job.title,
           companyName: job.companyId?.name || 'the company',
           description: job.description,
           requirements: job.requirements,
+          requiredSkills,
+          resumeSkills,
+          skillCoverage: this.createInitialSkillCoverage(requiredSkills),
+          optionalSkillCoverage: this.createInitialSkillCoverage(
+            resumeSkills.filter((skill) => !requiredSkills.some((req) => this.normalizeSkill(req) === this.normalizeSkill(skill)))
+          ),
           candidateName,
           conversationHistory: [],
-          currentQuestionIndex: 0
+          currentQuestionIndex: 0,
+          minBaselineQuestions: this.MIN_BASELINE_QUESTIONS,
+          maxFollowUpsPerPrimary: this.MAX_FOLLOWUPS_PER_PRIMARY,
+          estimatedTotalQuestions: Math.max(requiredSkills.length + 2, this.MIN_BASELINE_QUESTIONS),
+          currentTargetSkill: null,
+          currentQuestionType: 'main',
+          followUpsForCurrentPrimary: 0,
+          completionConfidence: 0,
+          completionReason: '',
+          maxTotalQuestions: this.MAX_TOTAL_QUESTIONS
         };
       } else {
         // Practice interview
+        const mockTitle = mockJobDetails?.jobTitle?.trim() || 'Practice Interview';
+        const mockCompany = mockJobDetails?.companyName?.trim() || 'HirePrep';
+        const mockDescription = mockJobDetails?.jobDescription?.trim()
+          || 'This is a practice interview to help you prepare for real interviews. We will ask general behavioral and technical questions.';
+        const mockRequiredSkills = Array.isArray(mockJobDetails?.requiredSkills)
+          ? mockJobDetails.requiredSkills.filter(Boolean)
+          : [];
+
         interviewContext = {
-          jobTitle: 'Practice Interview',
-          companyName: 'HirePrep',
-          description: 'This is a practice interview to help you prepare for real interviews. We will ask general behavioral and technical questions.',
-          requirements: 'General software engineering skills, problem-solving, communication',
+          jobTitle: mockTitle,
+          companyName: mockCompany,
+          description: mockDescription,
+          requirements: mockRequiredSkills.length > 0
+            ? `Required skills: ${mockRequiredSkills.join(', ')}`
+            : 'General software engineering skills, problem-solving, communication',
+          requiredSkills: mockRequiredSkills,
+          resumeSkills,
+          skillCoverage: this.createInitialSkillCoverage(mockRequiredSkills),
+          optionalSkillCoverage: this.createInitialSkillCoverage(resumeSkills),
           candidateName,
           conversationHistory: [],
-          currentQuestionIndex: 0
+          currentQuestionIndex: 0,
+          minBaselineQuestions: this.MIN_BASELINE_QUESTIONS,
+          maxFollowUpsPerPrimary: this.MAX_FOLLOWUPS_PER_PRIMARY,
+          estimatedTotalQuestions: 6,
+          currentTargetSkill: null,
+          currentQuestionType: 'main',
+          followUpsForCurrentPrimary: 0,
+          completionConfidence: 0,
+          completionReason: '',
+          maxTotalQuestions: this.MAX_TOTAL_QUESTIONS
         };
       }
 
@@ -84,27 +148,50 @@ class GeminiVoiceInterviewService {
           companyName: 'the company',
           description: 'General software engineering role',
           requirements: 'Problem-solving, communication, and technical skills',
+          requiredSkills: [],
+          resumeSkills: [],
+          skillCoverage: {},
+          optionalSkillCoverage: {},
           candidateName: 'Candidate',
           conversationHistory,
-          currentQuestionIndex: pastQuestions.length
+          currentQuestionIndex: pastQuestions.length,
+          minBaselineQuestions: this.MIN_BASELINE_QUESTIONS,
+          maxFollowUpsPerPrimary: this.MAX_FOLLOWUPS_PER_PRIMARY,
+          estimatedTotalQuestions: 6,
+          currentTargetSkill: null,
+          currentQuestionType: 'main',
+          followUpsForCurrentPrimary: 0,
+          completionConfidence: 0,
+          completionReason: '',
+          maxTotalQuestions: this.MAX_TOTAL_QUESTIONS
         };
 
         // Cache it so subsequent calls within this request lifecycle are fast
         this.activeInterviews.set(sessionId, context);
       }
 
-      const model = getGrokFlash();
-      
-      const prompt = this.buildInterviewPrompt(context);
+      const model = getOpenAIFlash();
+      const questionPlan = this.determineNextQuestionPlan(context);
+      const prompt = this.buildInterviewPrompt(context, questionPlan);
       
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const question = response.text();
+      const question = response.text().trim().replace(/^"|"$/g, '');
+
+      context.currentTargetSkill = questionPlan.targetSkill || null;
+      context.currentQuestionType = questionPlan.questionType;
+      if (questionPlan.questionType === 'main') {
+        context.followUpsForCurrentPrimary = 0;
+      } else {
+        context.followUpsForCurrentPrimary += 1;
+      }
 
       // Update conversation history
       context.conversationHistory.push({
         type: 'ai_question',
         content: question,
+        targetSkill: context.currentTargetSkill,
+        questionType: context.currentQuestionType,
         timestamp: new Date()
       });
       context.currentQuestionIndex++;
@@ -114,7 +201,11 @@ class GeminiVoiceInterviewService {
       return {
         question,
         questionNumber: context.currentQuestionIndex,
-        totalQuestions: 5,
+        totalQuestions: context.estimatedTotalQuestions,
+        estimatedTotalQuestions: context.estimatedTotalQuestions,
+        questionType: context.currentQuestionType,
+        targetSkill: context.currentTargetSkill,
+        completionConfidence: context.completionConfidence || 0,
         sessionId,
         hasAudio: true // Indicate that audio can be generated
       };
@@ -155,13 +246,19 @@ class GeminiVoiceInterviewService {
   /**
    * Build dynamic interview prompt based on conversation history
    */
-  buildInterviewPrompt(context) {
-    const { jobTitle, companyName, description, requirements, conversationHistory, currentQuestionIndex } = context;
+  buildInterviewPrompt(context, questionPlan) {
+    const { jobTitle, companyName, description, requirements, conversationHistory } = context;
+    const requirementsText = Array.isArray(requirements)
+      ? requirements.join(', ')
+      : (typeof requirements === 'string' ? requirements : JSON.stringify(requirements || {}));
+    const requiredCoverage = Object.values(context.skillCoverage || {}).filter((s) => s.evaluated).length;
+    const requiredTotal = Object.keys(context.skillCoverage || {}).length;
 
     let prompt = `You are an AI interviewer conducting a screening interview for the position of ${jobTitle} at ${companyName}.
 
 Job Description: ${description}
-Key Requirements: ${Array.isArray(requirements) ? requirements.join(', ') : requirements}
+Key Requirements: ${requirementsText}
+Required skill coverage so far: ${requiredCoverage}/${requiredTotal}
 
 `;
 
@@ -180,19 +277,24 @@ Generate ONE clear, conversational question. Keep it natural and friendly. Don't
         }
       });
 
-      if (currentQuestionIndex >= 5) {
-        prompt += `\nThis is the final question. Wrap up with a closing statement thanking them for their time.`;
-      } else {
-        prompt += `\nBased on their previous answer, generate the next relevant question (Question ${currentQuestionIndex + 1} of 5).
-        
+      prompt += `\nBased on their previous answer, generate the next relevant interview question.
+
+    Question plan:
+    - Type: ${questionPlan.questionType}
+    - Target skill/topic: ${questionPlan.targetSkill || 'general competency'}
+    - Focus: ${questionPlan.focus || 'assess practical ability and confidence'}
+
 The question should:
 - Be conversational and natural
 - Relate to the job requirements
 - Consider their previous answers if relevant
 - Be clear and concise
+- Probe depth where uncertainty remains about their actual ability
+
+    If this is a follow-up question, it MUST be a deeper probe on the SAME target skill and should not switch topic.
+    If this is a main question, it MUST switch to the target skill/topic and avoid repeating the previous exact question.
 
 Generate ONLY the question text, no labels or numbers.`;
-      }
     }
 
     return prompt;
@@ -231,11 +333,37 @@ Generate ONLY the question text, no labels or numbers.`;
 
       context.conversationHistory.push(answerEntry);
 
+      const latestSkill = context.currentTargetSkill;
+      const latestQuestionType = context.currentQuestionType;
+      const skillEvaluation = await this.evaluateSkillCoverage(
+        context,
+        latestSkill,
+        latestQuestionType,
+        answerText
+      );
+
+      if (latestSkill) {
+        this.updateSkillCoverage(context, latestSkill, skillEvaluation, latestQuestionType);
+      }
+
+      const completionAssessment = await this.assessInterviewCompletion(context);
+      context.estimatedTotalQuestions = completionAssessment.estimatedTotalQuestions;
+      context.completionConfidence = completionAssessment.confidence;
+      context.completionReason = completionAssessment.reason;
+
       this.activeInterviews.set(sessionId, context);
 
       return {
         success: true,
-        message: 'Answer and behavioral data recorded'
+        message: 'Answer and behavioral data recorded',
+        shouldComplete: completionAssessment.shouldComplete,
+        completionReason: completionAssessment.reason,
+        confidence: completionAssessment.confidence,
+        questionCount: completionAssessment.questionsAsked,
+        estimatedTotalQuestions: completionAssessment.estimatedTotalQuestions,
+        requiredSkillCoverage: completionAssessment.requiredSkillCoverage,
+        evaluatedRequiredSkills: completionAssessment.evaluatedRequiredSkills,
+        totalRequiredSkills: completionAssessment.totalRequiredSkills
       };
     } catch (error) {
       console.error('Error processing answer:', error);
@@ -243,13 +371,317 @@ Generate ONLY the question text, no labels or numbers.`;
     }
   }
 
+  async assessInterviewCompletion(context) {
+    const questionsAsked = context.conversationHistory.filter(
+      (item) => item.type === 'candidate_answer'
+    ).length;
+
+    const minQuestions = context.minBaselineQuestions || this.MIN_BASELINE_QUESTIONS;
+    const maxQuestions = context.maxTotalQuestions || this.MAX_TOTAL_QUESTIONS;
+    const requiredSkills = Object.keys(context.skillCoverage || {});
+    const evaluatedRequired = requiredSkills.filter((skill) => context.skillCoverage[skill]?.evaluated);
+
+    // Hard safety cap: never allow interview loops beyond configured max.
+    if (questionsAsked >= maxQuestions) {
+      return {
+        shouldComplete: true,
+        reason: `Interview completed after reaching maximum question limit (${maxQuestions})`,
+        confidence: 90,
+        questionsAsked,
+        estimatedTotalQuestions: questionsAsked,
+        requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 100,
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    }
+
+    if (questionsAsked < minQuestions) {
+      return {
+        shouldComplete: false,
+        reason: `Continue baseline probing to establish candidate ability`,
+        confidence: 0,
+        questionsAsked,
+        estimatedTotalQuestions: Math.max(minQuestions + 1, context.estimatedTotalQuestions || 6),
+        requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 0,
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    }
+
+    if (requiredSkills.length > 0 && evaluatedRequired.length < requiredSkills.length) {
+      return {
+        shouldComplete: false,
+        reason: `Continue until all required job skills are evaluated`,
+        confidence: 0,
+        questionsAsked,
+        estimatedTotalQuestions: Math.max(context.estimatedTotalQuestions || 6, questionsAsked + 1),
+        requiredSkillCoverage: Math.round((evaluatedRequired.length / requiredSkills.length) * 100),
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    }
+
+    // Deterministic completion once required skills are covered and we have enough evidence.
+    const requiredCoverageComplete = requiredSkills.length === 0 || evaluatedRequired.length >= requiredSkills.length;
+    const targetWhenCovered = Math.min(maxQuestions, Math.max(minQuestions, requiredSkills.length + 2));
+    if (requiredCoverageComplete && questionsAsked >= targetWhenCovered) {
+      return {
+        shouldComplete: true,
+        reason: `Required skills covered with sufficient depth`,
+        confidence: 85,
+        questionsAsked,
+        estimatedTotalQuestions: questionsAsked,
+        requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 100,
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    }
+
+    try {
+      const model = getOpenAIFlash();
+      const requirementsText = Array.isArray(context.requirements)
+        ? context.requirements.join(', ')
+        : (typeof context.requirements === 'string'
+          ? context.requirements
+          : JSON.stringify(context.requirements || {}));
+
+      const transcript = context.conversationHistory
+        .map((item) => {
+          if (item.type === 'ai_question') return `Interviewer: ${item.content}`;
+          if (item.type === 'candidate_answer') return `Candidate: ${item.content}`;
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n');
+
+      const prompt = `You are deciding whether an interview has gathered enough evidence to estimate candidate ability accurately.
+
+Role: ${context.jobTitle}
+Requirements: ${requirementsText}
+Questions asked so far: ${questionsAsked}
+Minimum questions required: ${minQuestions}
+All required skills covered: ${requiredSkills.length > 0 ? 'yes' : 'not applicable'}
+
+Transcript:
+${transcript}
+
+Return valid JSON only with keys:
+{
+  "shouldComplete": true|false,
+  "confidence": 0-100,
+  "reason": "brief explanation",
+  "estimatedTotalQuestions": number >= ${questionsAsked}
+}
+
+Rules:
+- Set shouldComplete=true only if confidence >= 80 and evidence is sufficient across communication + role-relevant depth.
+- If uncertain, set shouldComplete=false and increase estimatedTotalQuestions.
+- Keep estimatedTotalQuestions >= questions asked + 1 when shouldComplete=false.`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(text);
+
+      const confidence = Math.max(0, Math.min(100, Number(parsed.confidence) || 0));
+      const estimated = Math.max(
+        minQuestions,
+        Number(parsed.estimatedTotalQuestions) || Math.max(questionsAsked + 1, minQuestions + 1)
+      );
+      const shouldComplete = Boolean(parsed.shouldComplete) && confidence >= 80;
+
+      return {
+        shouldComplete,
+        confidence,
+        reason: parsed.reason || (shouldComplete ? 'Sufficient confidence achieved' : 'Need additional evidence'),
+        questionsAsked,
+        estimatedTotalQuestions: shouldComplete ? questionsAsked : Math.max(estimated, questionsAsked + 1),
+        requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 100,
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    } catch (error) {
+      console.warn('⚠️ Completion assessment fallback due to parse/model error:', error.message);
+
+      if (questionsAsked >= maxQuestions - 1) {
+        return {
+          shouldComplete: true,
+          confidence: 80,
+          reason: 'Completion fallback triggered near max question limit',
+          questionsAsked,
+          estimatedTotalQuestions: questionsAsked,
+          requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 100,
+          evaluatedRequiredSkills: evaluatedRequired.length,
+          totalRequiredSkills: requiredSkills.length
+        };
+      }
+
+      return {
+        shouldComplete: false,
+        confidence: 0,
+        reason: 'Could not confidently assess completion, continuing interview',
+        questionsAsked,
+        estimatedTotalQuestions: Math.max(questionsAsked + 1, context.estimatedTotalQuestions || 6),
+        requiredSkillCoverage: requiredSkills.length > 0 ? Math.round((evaluatedRequired.length / requiredSkills.length) * 100) : 100,
+        evaluatedRequiredSkills: evaluatedRequired.length,
+        totalRequiredSkills: requiredSkills.length
+      };
+    }
+  }
+
+  createInitialSkillCoverage(skills = []) {
+    const coverage = {};
+    skills.forEach((skill) => {
+      const key = this.normalizeSkill(skill);
+      coverage[key] = {
+        displayName: skill,
+        askedCount: 0,
+        followUpsAsked: 0,
+        evaluated: false,
+        confidenceScores: []
+      };
+    });
+    return coverage;
+  }
+
+  normalizeSkill(skill = '') {
+    return String(skill).trim().toLowerCase();
+  }
+
+  determineNextQuestionPlan(context) {
+    const requiredCoverage = context.skillCoverage || {};
+    const requiredSkills = Object.keys(requiredCoverage);
+    const currentSkill = this.normalizeSkill(context.currentTargetSkill || '');
+
+    if (
+      currentSkill &&
+      requiredCoverage[currentSkill] &&
+      !requiredCoverage[currentSkill].evaluated &&
+      context.followUpsForCurrentPrimary < (context.maxFollowUpsPerPrimary || this.MAX_FOLLOWUPS_PER_PRIMARY)
+    ) {
+      return {
+        questionType: 'followup',
+        targetSkill: requiredCoverage[currentSkill].displayName,
+        focus: 'clarify depth, practical implementation, and decision-making'
+      };
+    }
+
+    const uncoveredRequired = requiredSkills
+      .filter((skill) => !requiredCoverage[skill].evaluated)
+      .sort((a, b) => (requiredCoverage[a].askedCount || 0) - (requiredCoverage[b].askedCount || 0));
+
+    if (uncoveredRequired.length > 0) {
+      return {
+        questionType: 'main',
+        targetSkill: requiredCoverage[uncoveredRequired[0]].displayName,
+        focus: 'evaluate core required skill for the role'
+      };
+    }
+
+    const optionalCoverage = context.optionalSkillCoverage || {};
+    const uncoveredOptional = Object.keys(optionalCoverage)
+      .filter((skill) => !optionalCoverage[skill].evaluated)
+      .sort((a, b) => (optionalCoverage[a].askedCount || 0) - (optionalCoverage[b].askedCount || 0));
+
+    if (uncoveredOptional.length > 0 && (context.completionConfidence || 0) < 85) {
+      return {
+        questionType: 'main',
+        targetSkill: optionalCoverage[uncoveredOptional[0]].displayName,
+        focus: 'validate additional resume skill and transferable depth'
+      };
+    }
+
+    return {
+      questionType: 'main',
+      targetSkill: null,
+      focus: 'final competency validation and role fit'
+    };
+  }
+
+  updateSkillCoverage(context, skill, evaluation, questionType) {
+    if (!skill) return;
+    const normalized = this.normalizeSkill(skill);
+    const coverageSet = context.skillCoverage[normalized]
+      ? context.skillCoverage
+      : context.optionalSkillCoverage;
+
+    if (!coverageSet[normalized]) {
+      coverageSet[normalized] = {
+        displayName: skill,
+        askedCount: 0,
+        followUpsAsked: 0,
+        evaluated: false,
+        confidenceScores: []
+      };
+    }
+
+    const skillState = coverageSet[normalized];
+    skillState.askedCount += 1;
+    if (questionType === 'followup') skillState.followUpsAsked += 1;
+    if (Number.isFinite(evaluation.confidence)) skillState.confidenceScores.push(evaluation.confidence);
+    if (evaluation.skillEvaluated) skillState.evaluated = true;
+  }
+
+  async evaluateSkillCoverage(context, targetSkill, questionType, answerText) {
+    const normalizedTarget = this.normalizeSkill(targetSkill || '');
+    if (!normalizedTarget) {
+      return {
+        skillEvaluated: answerText.length > 80,
+        confidence: Math.min(95, Math.max(30, Math.round(answerText.length / 4)))
+      };
+    }
+
+    const lastQuestion = [...context.conversationHistory]
+      .reverse()
+      .find((item) => item.type === 'ai_question');
+
+    try {
+      const model = getOpenAIFlash();
+      const prompt = `Evaluate whether the candidate response is sufficient to assess their ability in skill: ${targetSkill}.
+
+Question type: ${questionType}
+Question: ${lastQuestion?.content || ''}
+Answer: ${answerText}
+
+Return valid JSON only with keys:
+{
+  "skillEvaluated": true|false,
+  "confidence": 0-100,
+  "reason": "brief"
+}
+
+Rules:
+- skillEvaluated=true only if answer demonstrates practical understanding or concrete experience.
+- If answer is vague/theoretical only, set skillEvaluated=false.
+- confidence reflects certainty about candidate ability for this skill.`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(text);
+
+      return {
+        skillEvaluated: Boolean(parsed.skillEvaluated),
+        confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+        reason: parsed.reason || ''
+      };
+    } catch (error) {
+      console.warn('⚠️ Skill coverage evaluation fallback:', error.message);
+      return {
+        skillEvaluated: answerText.length > 120,
+        confidence: Math.min(90, Math.max(25, Math.round(answerText.length / 5))),
+        reason: 'fallback heuristic'
+      };
+    }
+  }
+
   /**
-   * Generate final analysis and combined score (content + behavioral)
+   * Generate final analysis and combined score (content + behavioral + proctoring)
    * Behavioral scores (video + audio) come from MongoDB aggregation.
    * Content score comes from Gemini evaluating the full transcript.
-   * Final = 40% content + 30% video + 30% audio
+   * Final = 35% content + 25% video + 25% audio + 15% proctoring
    */
-  async generateFinalAnalysis(sessionId) {
+  async generateFinalAnalysis(sessionId, proctoringStats = {}) {
     try {
       const context = this.activeInterviews.get(sessionId);
 
@@ -293,7 +725,7 @@ Generate ONLY the question text, no labels or numbers.`;
       }
 
       // ── 3. Gemini evaluates answer CONTENT (transcript only) ─────────────
-      const model = getGrokFlash();
+      const model = getOpenAIFlash();
       const analysisPrompt = `You are an expert hiring manager analysing an interview for the position of ${jobTitle}.
 
 Key Requirements: ${requirements}
@@ -336,21 +768,41 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
         };
       }
 
-      // ── 4. Combine: 40% content + 30% video + 30% audio ─────────────────
+      const safeNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+      const tabSwitches = safeNumber(proctoringStats.tabSwitches);
+      const appSwitches = safeNumber(proctoringStats.appSwitches);
+      const totalSwitches = safeNumber(proctoringStats.totalSwitches || (tabSwitches + appSwitches));
+      const proctoringPenalty = (tabSwitches * 12) + (appSwitches * 8);
+      const proctoringScore = Math.max(0, Math.min(100, Math.round(100 - proctoringPenalty)));
+
+      // ── 4. Combine weighted scores ─────────────────
       const contentScore = Math.round(analysis.contentScore || 75);
       const finalScore = Math.round(
-        (contentScore     * 0.40) +
-        (avgVideoScore    * 0.30) +
-        (avgAudioScore    * 0.30)
+        (contentScore     * 0.35) +
+        (avgVideoScore    * 0.25) +
+        (avgAudioScore    * 0.25) +
+        (proctoringScore  * 0.15)
       );
 
-      console.log(`🎯 [FinalAnalysis] Scores — content: ${contentScore}, video: ${avgVideoScore}, audio: ${avgAudioScore} → final: ${finalScore}`);
+      console.log(`🎯 [FinalAnalysis] Scores — content: ${contentScore}, video: ${avgVideoScore}, audio: ${avgAudioScore}, proctoring: ${proctoringScore} → final: ${finalScore}`);
 
       analysis.overallScore     = finalScore;
       analysis.contentScore     = contentScore;
       analysis.videoScore       = Math.round(avgVideoScore);
       analysis.audioScore       = Math.round(avgAudioScore);
       analysis.behavioralScore  = Math.round(avgBehavioralScore);
+
+      let proctoringRiskLevel = 'low';
+      if (totalSwitches >= 5) proctoringRiskLevel = 'high';
+      else if (totalSwitches >= 2) proctoringRiskLevel = 'medium';
+
+      analysis.proctoring = {
+        tabSwitches,
+        appSwitches,
+        totalSwitches,
+        proctoringScore,
+        riskLevel: proctoringRiskLevel
+      };
 
       // Behavioral insights
       analysis.behavioralInsights = {
@@ -366,6 +818,13 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
       if (hasCheatingIndicators) {
         analysis.integrityWarning = '⚠️ Potential integrity concerns detected during the interview';
         analysis.recommendation   = 'Requires Further Review';
+      }
+
+      if (totalSwitches >= 5) {
+        analysis.integrityWarning = `⚠️ Proctoring red flag: ${totalSwitches} tab/app switches detected`;
+        analysis.recommendation = 'Requires Further Review';
+      } else if (totalSwitches === 1) {
+        analysis.insights = `${analysis.insights || ''} One focus switch was detected and treated as potentially accidental.`.trim();
       }
 
       // Clean up in-memory session
@@ -389,7 +848,11 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
 
     return {
       currentQuestion: context.currentQuestionIndex,
-      totalQuestions: 5,
+      totalQuestions: context.estimatedTotalQuestions,
+      estimatedTotalQuestions: context.estimatedTotalQuestions,
+      completionConfidence: context.completionConfidence || 0,
+      completionReason: context.completionReason || '',
+      requiredSkillCoverage: context.skillCoverage || {},
       conversationHistory: context.conversationHistory
     };
   }

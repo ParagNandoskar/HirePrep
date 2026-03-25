@@ -10,7 +10,8 @@ import {
   HiVideoCamera,
   HiChartBar,
   HiStar,
-  HiLightBulb
+  HiLightBulb,
+  HiCreditCard
 } from 'react-icons/hi'
 
 const StudentSidebar = () => {
@@ -36,6 +37,12 @@ const StudentSidebar = () => {
       current: location.pathname === '/student-dashboard/resume'
     },
     {
+      name: 'Subscription',
+      href: '/student-dashboard/subscription',
+      icon: HiCreditCard,
+      current: location.pathname === '/student-dashboard/subscription'
+    },
+    {
       name: 'Explore Jobs',
       href: '/student-dashboard/explore-jobs',
       icon: HiBriefcase,
@@ -54,13 +61,19 @@ const StudentSidebar = () => {
       current: location.pathname === '/student-dashboard/leaderboard'
     },
     {
+      name: 'Mock Interview',
+      href: '/student-dashboard/mock-interview',
+      icon: HiVideoCamera,
+      current: location.pathname === '/student-dashboard/mock-interview'
+    },
+    {
       name: 'Interview History',
       href: '/student-dashboard/interview-history',
       icon: HiClock,
       current: location.pathname === '/student-dashboard/interview-history'
     },
     {
-      name: 'Results & Analytics',
+      name: 'Results & Analytics (Premium)',
       href: '/student-dashboard/results',
       icon: HiChartBar,
       current: location.pathname === '/student-dashboard/results'

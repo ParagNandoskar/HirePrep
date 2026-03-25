@@ -37,8 +37,9 @@ const JobDetails = () => {
     try {
       setIsLoading(true)
       const response = await jobsAPI.getJob(jobId)
-      if (response && response.job) {
-        setJob(response.job)
+      const jobData = response?.data || response?.job
+      if (jobData) {
+        setJob(jobData)
       }
     } catch (error) {
       console.error('Error fetching job:', error)
@@ -51,9 +52,7 @@ const JobDetails = () => {
   const fetchApplications = async () => {
     try {
       const response = await jobsAPI.getJobApplications(jobId)
-      if (response && response.applications) {
-        setApplications(response.applications)
-      }
+      setApplications(response?.data?.applications || response?.applications || [])
     } catch (error) {
       console.error('Error fetching applications:', error)
     }
@@ -80,12 +79,37 @@ const JobDetails = () => {
   }
 
   const formatSalary = (min, max, currency = 'USD') => {
-    if (!min && !max) return 'Not specified'
-    const symbol = currency === 'USD' ? '$' : currency
-    if (min && max) {
-      return `${symbol}${(min / 1000).toFixed(0)}K - ${symbol}${(max / 1000).toFixed(0)}K`
+    const hasMin = Number.isFinite(min) && min > 0
+    const hasMax = Number.isFinite(max) && max > 0
+    if (!hasMin && !hasMax) return 'Not specified'
+
+    const formatAmount = (amount) => {
+      try {
+        const locale = currency === 'INR' ? 'en-IN' : 'en-US'
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency,
+          maximumFractionDigits: 0
+        }).format(amount)
+      } catch {
+        return `${currency} ${Number(amount).toLocaleString('en-IN')}`
+      }
     }
-    return min ? `${symbol}${(min / 1000).toFixed(0)}K+` : `Up to ${symbol}${(max / 1000).toFixed(0)}K`
+
+    if (hasMin && hasMax) {
+      return `${formatAmount(min)} - ${formatAmount(max)}`
+    }
+    return hasMin ? `${formatAmount(min)}+` : `Up to ${formatAmount(max)}`
+  }
+
+  const formatLocation = (location) => {
+    if (!location) return 'Not specified'
+    if (typeof location === 'string') return location
+
+    const parts = [location.city, location.state, location.country].filter(Boolean)
+    if (parts.length > 0) return parts.join(', ')
+
+    return location.type || 'Not specified'
   }
 
   const getStatusColor = (status) => {
@@ -167,11 +191,11 @@ const JobDetails = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             <div className="flex items-center text-gray-600">
               <HiLocationMarker className="w-5 h-5 mr-2" />
-              <span>{job.location || 'Not specified'}</span>
+              <span>{formatLocation(job.location)}</span>
             </div>
             <div className="flex items-center text-gray-600">
               <HiCurrencyDollar className="w-5 h-5 mr-2" />
-              <span>{formatSalary(job.compensation?.salaryMin, job.compensation?.salaryMax, job.compensation?.currency)}</span>
+              <span>{formatSalary(job.compensation?.salaryRange?.min, job.compensation?.salaryRange?.max, job.compensation?.salaryRange?.currency)}</span>
             </div>
             <div className="flex items-center text-gray-600">
               <HiBriefcase className="w-5 h-5 mr-2" />
@@ -286,7 +310,7 @@ const JobDetails = () => {
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Salary Range</h3>
               <p className="text-2xl font-bold text-blue-600">
-                {formatSalary(job.compensation.salaryMin, job.compensation.salaryMax, job.compensation.currency)}
+                {formatSalary(job.compensation?.salaryRange?.min, job.compensation?.salaryRange?.max, job.compensation?.salaryRange?.currency)}
               </p>
             </div>
 

@@ -208,6 +208,32 @@ const candidateSchema = new mongoose.Schema({
       enum: ['startup', 'small', 'medium', 'large', 'enterprise']
     }
   },
+
+  // Subscription
+  subscription: {
+    plan: {
+      type: String,
+      enum: ['free', 'pro', 'elite'],
+      default: 'free'
+    },
+    billingCycle: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      default: 'monthly'
+    },
+    status: {
+      type: String,
+      enum: ['active', 'inactive', 'cancelled'],
+      default: 'active'
+    },
+    startedAt: {
+      type: Date,
+      default: Date.now
+    },
+    renewsAt: {
+      type: Date
+    }
+  },
   
   // Profile Status
   profileCompleteness: {
