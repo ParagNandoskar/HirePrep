@@ -6,9 +6,14 @@ const OpenAI = require('openai');
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GROK_MODEL_NAME = process.env.GROK_MODEL_NAME || 'llama-3.3-70b-versatile';
 
 if (!OPENAI_API_KEY) {
   console.warn('⚠️ OPENAI_API_KEY is not set in environment variables');
+}
+
+if (!GROK_MODEL_NAME) {
+  console.warn('⚠️ GROK_MODEL_NAME is not set, using default: llama-3.3-70b-versatile');
 }
 
 const openai = new OpenAI({
@@ -18,10 +23,10 @@ const openai = new OpenAI({
 
 /**
  * Get OpenAI model instance (using Grok backend)
- * @param {string} modelName - Model name (default: llama-3.3-70b-versatile for Grok)
+ * @param {string} modelName - Model name (default from GROK_MODEL_NAME env variable)
  * @returns {Object} - Model object with generateContent method
  */
-const getOpenAIModel = (modelName = 'llama-3.3-70b-versatile') => {
+const getOpenAIModel = (modelName = GROK_MODEL_NAME) => {
   return {
     generateContent: async (prompt) => {
       const response = await openai.chat.completions.create({
@@ -52,7 +57,7 @@ const getOpenAIModel = (modelName = 'llama-3.3-70b-versatile') => {
 const generateContent = async (prompt, options = {}) => {
   try {
     const response = await openai.chat.completions.create({
-      model: options.model || 'llama-3.3-70b-versatile',
+      model: options.model || GROK_MODEL_NAME,
       max_tokens: options.maxTokens || 2048,
       messages: [
         {
@@ -74,21 +79,21 @@ const generateContent = async (prompt, options = {}) => {
  * Get model for general use
  */
 const getOpenAIFlashLite = () => {
-  return getOpenAIModel('llama-3.3-70b-versatile');
+  return getOpenAIModel(GROK_MODEL_NAME);
 };
 
 /**
  * Get model for interview questions
  */
 const getOpenAIFlash = () => {
-  return getOpenAIModel('llama-3.3-70b-versatile');
+  return getOpenAIModel(GROK_MODEL_NAME);
 };
 
 /**
  * Get model for embeddings-like operations
  */
 const getEmbeddingsModel = () => {
-  return getOpenAIModel('llama-3.3-70b-versatile');
+  return getOpenAIModel(GROK_MODEL_NAME);
 };
 
 module.exports = {
@@ -97,5 +102,6 @@ module.exports = {
   getOpenAIModel,
   getOpenAIFlashLite,
   getOpenAIFlash,
-  getEmbeddingsModel
+  getEmbeddingsModel,
+  GROK_MODEL_NAME
 };
