@@ -32,6 +32,7 @@ const AIVoiceInterview = () => {
   const [interviewStarted, setInterviewStarted] = useState(false)
   const [isAISpeaking, setIsAISpeaking] = useState(false)
   const [isListening, setIsListening] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState('')
   const [interimTranscript, setInterimTranscript] = useState('')
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false)
@@ -201,7 +202,7 @@ const AIVoiceInterview = () => {
       window.removeEventListener('contextmenu', blockClipboardAction)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [interviewStarted, isAISpeaking, isListening])
+  }, [interviewStarted, isAISpeaking, isListening, isTranscribing])
 
   const startInterviewSession = async () => {
     if (!stream) {
@@ -410,14 +411,14 @@ const AIVoiceInterview = () => {
     }
   }
 
-  const startListening = () => {
+  const startListening = async () => {
     if (!speechRecognition.isSupported()) {
-      setError('Speech recognition is not supported in your browser. Please use Chrome or Edge.')
+      setError('Audio recording is not supported in your browser. Please use a modern browser.')
       return
     }
 
     // Prevent starting if already listening
-    if (speechRecognition.isActive()) {
+    if (speechRecognition.isActive() || isTranscribing) {
       console.warn('Speech recognition already active, ignoring start request');
       return;
     }
@@ -429,7 +430,7 @@ const AIVoiceInterview = () => {
     // Start video recording
     startVideoRecording()
 
-    const started = speechRecognition.start({
+    const started = await speechRecognition.start({
       onResult: (result) => {
         const normalizedFinal = normalizeTranscript(result.transcript || result.fullTranscript || '')
         setCurrentTranscript(normalizedFinal)
@@ -443,39 +444,57 @@ const AIVoiceInterview = () => {
       },
       onEnd: () => {
         setIsListening(false)
+        setIsTranscribing(false)
       },
       onError: (error) => {
         console.error('Speech recognition error:', error)
         setIsListening(false)
+        setIsTranscribing(false)
         
         if (error === 'no-speech' || error === 'aborted') {
           return
         } else if (error === 'not-allowed') {
           setError('Microphone permission denied. Please allow microphone access.')
+        } else if (error === 'no-microphone') {
+          setError('No microphone detected. Please connect a microphone and try again.')
+        } else if (String(error).includes('missing-api-config')) {
+          setError('Missing speech API config. Set VITE_XAI_API_KEY, VITE_XAI_MODEL, and VITE_TRANSCRIPTION_API_URL in frontend .env.')
+        } else if (String(error).startsWith('api-error:')) {
+          const [, status, ...detailParts] = String(error).split(':')
+          const details = detailParts.join(':')
+          setError(`Transcription API error (${status}). ${details || 'Please verify API key and model.'}`)
         } else {
-          setError('Speech recognition error. Please try again.')
+          setError('Transcription failed. Please try again.')
         }
       }
     })
 
     if (started) {
       setIsListening(true)
+    } else {
+      stopVideoRecording()
     }
   }
 
-  const stopListening = () => {
-    const finalTranscript = speechRecognition.stop()
-    const normalizedFinal = normalizeTranscript((finalTranscript || '').trim())
+  const stopListening = async () => {
+    if (isTranscribing) return
+
     setIsListening(false)
-    setCurrentTranscript(normalizedFinal)
-    setInterimTranscript('')
-    console.log('📝 [Interview Transcript Final]', {
-      rawFinal: (finalTranscript || '').trim(),
-      correctedFinal: normalizedFinal
-    })
-    
-    // Stop video recording
-    stopVideoRecording()
+    setIsTranscribing(true)
+
+    try {
+      const finalTranscript = await speechRecognition.stop()
+      const normalizedFinal = normalizeTranscript((finalTranscript || '').trim())
+      setCurrentTranscript(normalizedFinal)
+      setInterimTranscript('')
+      console.log('📝 [Interview Transcript Final]', {
+        rawFinal: (finalTranscript || '').trim(),
+        correctedFinal: normalizedFinal
+      })
+    } finally {
+      setIsTranscribing(false)
+      stopVideoRecording()
+    }
   }
 
   const startVideoRecording = () => {
@@ -913,6 +932,11 @@ const AIVoiceInterview = () => {
                         <p className="text-slate-600 text-sm">Press Space to stop recording and review-ready submit.</p>
                         <p className="text-slate-500 text-xs">Transcript is hidden from the UI and logged to browser console only.</p>
                       </div>
+                    ) : isTranscribing ? (
+                      <div className="space-y-2">
+                        <p className="text-amber-700 text-sm font-semibold">Transcribing your response...</p>
+                        <p className="text-slate-600 text-sm">Please wait while we convert audio to text.</p>
+                      </div>
                     ) : (
                       <div className="space-y-2">
                         <p className="text-slate-700 text-sm font-medium">Press Space to start recording your answer.</p>
@@ -932,7 +956,7 @@ const AIVoiceInterview = () => {
                   {!isListening ? (
                     <button
                       onClick={startListening}
-                      disabled={isAISpeaking}
+                      disabled={isAISpeaking || isTranscribing}
                       className="inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-blue-600 to-indigo-600 text-white rounded-full hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_10px_22px_rgba(37,99,235,0.35)] transform hover:scale-[1.02] transition-all"
                     >
                       <HiMicrophone className="w-5 h-5 shrink-0" />
@@ -941,16 +965,17 @@ const AIVoiceInterview = () => {
                   ) : (
                     <button
                       onClick={stopListening}
-                      className="inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-red-600 to-rose-600 text-white rounded-full hover:from-red-700 hover:to-rose-700 shadow-[0_10px_22px_rgba(220,38,38,0.35)] animate-pulse"
+                      disabled={isTranscribing}
+                      className="inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-red-600 to-rose-600 text-white rounded-full hover:from-red-700 hover:to-rose-700 shadow-[0_10px_22px_rgba(220,38,38,0.35)] animate-pulse disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse shrink-0"></div>
-                      <span className="font-semibold text-sm lg:text-base">Stop (Space)</span>
+                      <span className="font-semibold text-sm lg:text-base">{isTranscribing ? 'Transcribing...' : 'Stop (Space)'}</span>
                     </button>
                   )}
 
                   <button
                     onClick={submitAnswer}
-                    disabled={!currentTranscript || isListening || isAISpeaking}
+                    disabled={!currentTranscript || isListening || isAISpeaking || isTranscribing}
                     className="inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-emerald-600 to-green-600 text-white rounded-xl hover:from-emerald-700 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_10px_22px_rgba(22,163,74,0.3)]"
                   >
                     <span className="font-semibold text-sm lg:text-base">Submit Answer</span>
