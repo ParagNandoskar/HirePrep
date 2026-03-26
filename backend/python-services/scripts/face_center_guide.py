@@ -37,8 +37,11 @@ import os
 
 class FaceCenterGuide:
     def __init__(self):
-        # Check for model file
-        self.model_path = 'face_landmarker.task'
+        # Resolve model path relative to this script so it works from any cwd.
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        env_model_path = os.getenv('FACE_LANDMARKER_MODEL_PATH')
+        self.model_path = env_model_path or os.path.join(script_dir, 'face_landmarker.task')
+
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(
                 f"Model file not found: {self.model_path}\n"
