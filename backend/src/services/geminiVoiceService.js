@@ -6,12 +6,17 @@ const googleTTSService = require('./googleTTSService');
 const interviewAggregationService = require('./interviewAggregationService');
 const QuestionAnalysis = require('../models/QuestionAnalysis');
 
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 class GeminiVoiceInterviewService {
   constructor() {
     this.activeInterviews = new Map();
-    this.MIN_BASELINE_QUESTIONS = 3;
-    this.MAX_FOLLOWUPS_PER_PRIMARY = 2;
-    this.MAX_TOTAL_QUESTIONS = 10;
+    this.MIN_BASELINE_QUESTIONS = parsePositiveInt(process.env.MIN_BASELINE_QUESTIONS, 3);
+    this.MAX_FOLLOWUPS_PER_PRIMARY = parsePositiveInt(process.env.MAX_FOLLOWUPS_PER_PRIMARY, 2);
+    this.MAX_TOTAL_QUESTIONS = parsePositiveInt(process.env.MAX_TOTAL_QUESTIONS, 7);
   }
 
   /**

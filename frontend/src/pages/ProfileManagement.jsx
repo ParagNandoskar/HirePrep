@@ -106,7 +106,8 @@ const ProfileManagement = () => {
              setIsProfileLoading(true) 
         }
 
-        // Don't fetch if we already have profile data in user context
+        // Use auth context for quick prefill, but always continue to API fetch
+        // so UI reflects latest server state.
         if (user && (user.firstName || user.lastName || user.phone)) {
           
           // Check if we have essential data, if not, fetch from API
@@ -147,14 +148,10 @@ const ProfileManagement = () => {
               
               // If we have skills but no source info, we need fresh data from API
               if (skillsArray.length > 0 && autoExtracted.length === 0) {
-                // Don't return early, continue to API fetch for complete data
-              } else {
-                setIsProfileLoading(false)
-                return // Exit early only if we have complete data
+                // Continue to API fetch for complete data
               }
             } else {
-              setIsProfileLoading(false)
-              return // Exit early if no skills at all
+              // Continue to API fetch for complete data
             }
           }
         }
@@ -201,14 +198,12 @@ const ProfileManagement = () => {
             
             setAutoExtractedSkills(autoExtracted)
           } else {
-            // Only try to sync when no skills are found anywhere and we haven't attempted auto-sync yet
-            const hasAnySkills = skills.length > 0 || (formData.skills && formData.skills.length > 0);
-            if (!isSyncing && !hasAttemptedAutoSync && !hasAnySkills && !noResumeAvailable) {
-              setHasAttemptedAutoSync(true); // Mark that we've attempted auto-sync
-              setTimeout(() => {
-                handleSyncSkills();
-              }, 500); // Small delay to ensure component is ready
-            }
+            // API is source of truth: clear stale local/auth skills immediately.
+            setSkills([])
+            setAutoExtractedSkills([])
+
+            // Keep sync explicit: do not auto-sync from resume on page load.
+            // Users can use the "Sync from Resume" action when they want to repopulate skills.
           }
           
           // Sync successful profile data back to AuthContext (only once per session)

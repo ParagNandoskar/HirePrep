@@ -8,9 +8,13 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student', focus
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false)
   const [activePlan, setActivePlan] = useState(null)
+  const [avatarLoadError, setAvatarLoadError] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const dropdownRef = useRef(null)
+
+  const profileImageUrl = user?.profileImage || user?.profile?.profileImage || user?.avatar || ''
+  const userInitial = user?.name?.charAt(0) || user?.firstName?.charAt(0) || user?.email?.charAt(0) || 'U'
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen)
@@ -76,6 +80,10 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student', focus
       isMounted = false
     }
   }, [user?.role, userType])
+
+  useEffect(() => {
+    setAvatarLoadError(false)
+  }, [profileImageUrl])
 
   return (
     <div className="min-h-screen bg-[#0035661A] flex">
@@ -150,18 +158,18 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student', focus
                 className="flex items-center space-x-2 text-gray-700 hover:text-gray-900 transition-colors p-2 rounded-lg hover:bg-gray-50"
               >
                 <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                  <img 
-                    src="/default-avatar.png" 
-                    alt="Profile" 
-                    className="w-full h-full rounded-full object-cover"
-                    onError={(e) => {
-                      e.target.style.display = 'none'
-                      e.target.nextSibling.style.display = 'flex'
-                    }}
-                  />
-                  <div className="w-full h-full bg-primary rounded-full items-center justify-center text-white text-sm font-medium hidden">
-                    {user?.name?.charAt(0) || user?.email?.charAt(0) || 'U'}
-                  </div>
+                  {profileImageUrl && !avatarLoadError ? (
+                    <img
+                      src={profileImageUrl}
+                      alt="Profile"
+                      className="w-full h-full rounded-full object-cover"
+                      onError={() => setAvatarLoadError(true)}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
+                      {userInitial.toUpperCase()}
+                    </div>
+                  )}
                 </div>
                 <div className="hidden md:block text-left">
                   <div className="text-sm font-medium text-gray-900">

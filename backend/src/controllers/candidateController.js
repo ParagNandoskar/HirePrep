@@ -66,27 +66,36 @@ const getProfile = asyncHandler(async (req, res) => {
 });
 
 // Helper function to normalize skills from simple strings to skill objects
-const normalizeSkills = (skills) => {
+// and preserve existing metadata (like source) when the skill already exists.
+const normalizeSkills = (skills, existingSkills = []) => {
   if (!skills) return [];
   if (!Array.isArray(skills)) return [];
+
+  const existingSkillsMap = new Map(
+    (existingSkills || [])
+      .filter((skill) => skill && skill.name)
+      .map((skill) => [String(skill.name).toLowerCase(), skill])
+  );
 
   return skills.map(skill => {
     // If it's already an object with name property, use it as-is
     if (typeof skill === 'object' && skill.name) {
+      const existing = existingSkillsMap.get(String(skill.name).toLowerCase());
       return {
         name: skill.name,
         level: skill.level || 'Intermediate',
         yearsOfExperience: skill.yearsOfExperience || 0,
-        source: skill.source || 'manual'
+        source: skill.source || existing?.source || 'manual'
       };
     }
     // If it's just a string, convert it to a skill object
     if (typeof skill === 'string') {
+      const existing = existingSkillsMap.get(String(skill).toLowerCase());
       return {
         name: skill,
         level: 'Intermediate',
         yearsOfExperience: 0,
-        source: 'manual'
+        source: existing?.source || 'manual'
       };
     }
     return null;
@@ -101,13 +110,13 @@ const updateProfile = asyncHandler(async (req, res) => {
   console.log('DEBUG: Updating candidate profile for user:', userId);
   console.log('DEBUG: Update data received:', updateData);
 
-  // Normalize skills if provided
-  if (updateData.skills) {
-    updateData.skills = normalizeSkills(updateData.skills);
-  }
-
   // Find existing candidate or create new one
   let candidate = await Candidate.findOne({ userId });
+
+  // Normalize skills if provided, preserving source metadata from existing profile
+  if (updateData.skills) {
+    updateData.skills = normalizeSkills(updateData.skills, candidate?.skills || []);
+  }
 
   if (!candidate) {
     // Create new candidate profile

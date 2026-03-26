@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react'
-import { authAPI } from '../services/api'
+import { authAPI, candidatesAPI } from '../services/api'
 
 const AuthContext = createContext()
 
@@ -45,6 +45,45 @@ const authReducer = (state, action) => {
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState)
   const authCheckRef = useRef(false) // Prevent multiple simultaneous auth checks
+
+  const hydrateCandidateProfile = async (baseUser) => {
+    try {
+      const role = String(baseUser?.role || '').toLowerCase()
+      const isEmployer = role === 'employer' || role === 'company'
+
+      if (!baseUser || isEmployer) {
+        return baseUser
+      }
+
+      const response = await candidatesAPI.getProfile()
+      const profile = response?.data || response
+
+      if (!profile || !profile._id) {
+        return baseUser
+      }
+
+      const enrichedUser = {
+        ...baseUser,
+        firstName: profile.firstName || baseUser.firstName,
+        lastName: profile.lastName || baseUser.lastName,
+        phone: profile.phone || baseUser.phone,
+        gender: profile.gender || baseUser.gender,
+        currentRole: profile.currentRole || baseUser.currentRole,
+        profileSummary: profile.profileSummary || baseUser.profileSummary,
+        profileImage: profile.profileImage || baseUser.profileImage,
+        skills: Array.isArray(profile.skills) ? profile.skills : (baseUser.skills || []),
+        subscription: profile.subscription || baseUser.subscription,
+        profile
+      }
+
+      authAPI.setUser(enrichedUser)
+      dispatch({ type: 'UPDATE_USER', payload: enrichedUser })
+      return enrichedUser
+    } catch (error) {
+      console.warn('Profile hydration skipped:', error.message)
+      return baseUser
+    }
+  }
 
   // Check for existing token on app load
   useEffect(() => {
@@ -160,6 +199,7 @@ export const AuthProvider = ({ children }) => {
                   token: token
                 }
               })
+              await hydrateCandidateProfile(mergedUser)
             } else if (response && response.success) {
               // Backend successfully confirms auth but may not return full profile, rely on saved user
               dispatch({
@@ -169,6 +209,7 @@ export const AuthProvider = ({ children }) => {
                   token: token
                 }
               })
+              await hydrateCandidateProfile(savedUser)
             } else {
                // Invalid response structure, rely on saved user
               dispatch({
@@ -178,6 +219,7 @@ export const AuthProvider = ({ children }) => {
                   token: token
                 }
               })
+              await hydrateCandidateProfile(savedUser)
             }
           } catch (error) {
             console.error('❌ Token verification failed:', error)
@@ -245,8 +287,10 @@ export const AuthProvider = ({ children }) => {
             token: response.data.token
           }
         })
+
+        const enrichedUser = await hydrateCandidateProfile(response.data.user)
         
-        return { success: true, user: response.data.user }
+        return { success: true, user: enrichedUser }
       } else {
         throw new Error(response.message || 'Login failed')
       }
@@ -274,8 +318,10 @@ export const AuthProvider = ({ children }) => {
             token: response.data.token
           }
         })
+
+        const enrichedUser = await hydrateCandidateProfile(response.data.user)
         
-        return { success: true, user: response.data.user }
+        return { success: true, user: enrichedUser }
       } else {
         throw new Error(response.message || 'Registration failed')
       }

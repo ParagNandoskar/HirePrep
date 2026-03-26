@@ -33,49 +33,22 @@ async function parseResumeWithPythonNLP(resumeUrl, candidateId = null) {
 }
 
 class ResumeParserService {
-  // Main parsing method that uses Python NLP service as primary method
+  // Main parsing method that uses Python NLP service only
   async parseResume(filePath, fileBuffer, fileType, resumeUrl = null, candidateId = null) {
     console.log(`Starting resume parsing - File: ${filePath}, Type: ${fileType}, URL: ${resumeUrl ? 'provided' : 'none'}`);
-    
-    // Try Python NLP service first if we have a resume URL
-    if (resumeUrl) {
-      try {
-        console.log('Attempting Python NLP service...');
-        const pythonData = await parseResumeWithPythonNLP(resumeUrl, candidateId);
-        console.log('Python NLP service parsing successful');
-        
-        return {
-          ...pythonData,
-          _parsingMethod: 'python_service'
-        };
-      } catch (pythonError) {
-        console.error('Python NLP service failed:', pythonError.message);
-        // Continue to local fallback parsing
-      }
+
+    if (!resumeUrl) {
+      throw new Error('Resume URL is required for NLP service parsing');
     }
-    
-    // Fallback to local text extraction and basic parsing
-    try {
-      console.log('Attempting local parsing as fallback...');
-      const text = await this.extractText(fileBuffer, fileType);
-      console.log(`Extracted text length: ${text ? text.length : 0} characters`);
-      
-      if (!text || text.trim().length < 50) {
-        throw new Error('Insufficient text extracted from resume');
-      }
-      
-      // Create minimal parsed data structure
-      const parsedData = this.createMinimalParsedData(text);
-      console.log('Local fallback parsing completed');
-      
-      return {
-        ...parsedData,
-        _parsingMethod: 'local_fallback'
-      };
-    } catch (localError) {
-      console.error('Local parsing failed:', localError.message);
-      throw new Error(`Resume parsing failed: ${localError.message}`);
-    }
+
+    console.log('Attempting Python NLP service...');
+    const pythonData = await parseResumeWithPythonNLP(resumeUrl, candidateId);
+    console.log('Python NLP service parsing successful');
+
+    return {
+      ...pythonData,
+      _parsingMethod: 'python_service'
+    };
   }
 
   // Create minimal parsed data structure when detailed parsing fails
