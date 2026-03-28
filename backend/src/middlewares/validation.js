@@ -1,16 +1,44 @@
 const Joi = require('joi');
 const { errorResponse } = require('../utils/helpers');
 
-// Validation middleware
+/**
+ * Validation Middleware Factory
+ * Validates request body against provided Joi schema
+ * Returns detailed error information for client
+ * @param {JoiSchema} schema - Joi validation schema
+ * @returns {Function} Express middleware
+ */
 const validate = (schema) => {
   return (req, res, next) => {
-    const { error } = schema.validate(req.body, { abortEarly: false });
-    
+    const { error, value } = schema.validate(req.body, {
+      abortEarly: false, // Collect all errors, not just first one
+      stripUnknown: true, // Remove unknown fields for security
+      context: req, // Pass request context for conditional validation
+    });
+
     if (error) {
-      const errors = error.details.map(detail => detail.message);
-      return errorResponse(res, `Validation Error: ${errors.join(', ')}`, 400);
+      // Format validation errors for client
+      const validationErrors = error.details.map((detail) => ({
+        field: detail.path.join('.'),
+        message: detail.message,
+        type: detail.type,
+      }));
+
+      // Log validation failures for debugging
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('❌ Validation failed for', req.path, validationErrors);
+      }
+
+      return errorResponse(
+        res,
+        'Request validation failed',
+        400,
+        { errors: validationErrors }
+      );
     }
-    
+
+    // Attach validated data to request for controller use
+    req.validated = value;
     next();
   };
 };
@@ -18,48 +46,145 @@ const validate = (schema) => {
 // User registration validation
 const registerValidation = Joi.object({
   // Support both formats for backward compatibility
-  name: Joi.string().min(2).max(50).optional().allow(''),
-  firstName: Joi.string().min(1).max(25).optional().allow(''),
-  lastName: Joi.string().min(0).max(25).optional().allow(''),
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).max(128).required(),
-  role: Joi.string().valid('student', 'company', 'candidate', 'employer').required(),
+  name: Joi.string().trim().min(2).max(100).optional().allow(''),
+  firstName: Joi.string().trim().min(1).max(50).optional().allow(''),
+  lastName: Joi.string().trim().max(50).optional().allow(''),
+  
+  // Email validation - normalized, required
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .required()
+    .lowercase()
+    .trim()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  
+  // Password validation - required, min 6 chars
+  password: Joi.string()
+    .min(6)
+    .max(128)
+    .required()
+    .messages({
+      'string.min': 'Password must be at least 6 characters long',
+      'string.max': 'Password must not exceed 128 characters',
+      'any.required': 'Password is required',
+    }),
+  
+  // Role validation - must be one of specified values
+  role: Joi.string()
+    .valid('student', 'company', 'candidate', 'employer')
+    .required()
+    .messages({
+      'any.only': 'Role must be one of: candidate, employer, student, or company',
+      'any.required': 'Role is required',
+    }),
+  
+  // Profile - conditional validation based on role
   profile: Joi.object().when('role', {
     is: Joi.string().valid('student', 'candidate'),
     then: Joi.object({
-      university: Joi.string().optional(),
-      degree: Joi.string().optional(),
+      university: Joi.string().max(100).optional(),
+      degree: Joi.string().max(100).optional(),
       graduationYear: Joi.number().integer().min(1900).max(2030).optional(),
-      phone: Joi.string().optional()
+      phone: Joi.string().pattern(/^[+\d\s-()]+$/).optional().allow('')
     }),
     otherwise: Joi.object({
-      companyName: Joi.string().optional(), // Made optional for flexibility
-      companySize: Joi.string().optional(),
-      industry: Joi.string().optional(),
-      website: Joi.string().uri().optional(),
+      companyName: Joi.string().max(100).optional(),
+      companySize: Joi.string().max(50).optional(),
+      industry: Joi.string().max(100).optional(),
+      website: Joi.string().uri().optional().allow(''),
       description: Joi.string().max(1000).optional()
     })
   }).optional()
-}).custom((value, helpers) => {
-  // Ensure either name or firstName is provided (lastName can be empty)
-  if (!value.name && !value.firstName) {
-    return helpers.error('any.custom', { 
-      message: 'Either "name" or "firstName" must be provided' 
-    });
-  }
-  
-  // If name is empty but firstName is provided, that's okay
-  if (!value.name && value.firstName) {
+})
+  .custom((value, helpers) => {
+    // Ensure either name or firstName is provided
+    if (!value.name && !value.firstName) {
+      return helpers.error('any.custom', {
+        message: 'Either "name" or "firstName" must be provided'
+      });
+    }
     return value;
-  }
-  
-  return value;
-});
+  })
+  .messages({
+    'object.unknown': 'Unknown field in request body is not allowed',
+  });
 
 // User login validation
 const loginValidation = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().required()
+  // Email validation
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .required()
+    .lowercase()
+    .trim()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  
+  // Password validation - required
+  password: Joi.string()
+    .required()
+    .max(128)
+    .messages({
+      'any.required': 'Password is required',
+    }),
+})
+  .strict(); // Don't allow unknown fields
+
+// Profile update validation
+const updateProfileValidation = Joi.object({
+  name: Joi.string().trim().min(2).max(100).optional(),
+  firstName: Joi.string().trim().min(1).max(50).optional(),
+  lastName: Joi.string().trim().max(50).optional(),
+  avatar: Joi.string().uri().optional().allow(''),
+  phone: Joi.string().pattern(/^[+\d\s-()]*$/).optional().allow(''),
+  profile: Joi.object().unknown(true).optional(),
+})
+  .min(1) // At least one field must be provided
+  .messages({
+    'object.min': 'At least one field must be provided for update',
+  });
+
+// Change password validation
+const changePasswordValidation = Joi.object({
+  currentPassword: Joi.string()
+    .required()
+    .messages({
+      'any.required': 'Current password is required',
+    }),
+  
+  newPassword: Joi.string()
+    .min(6)
+    .max(128)
+    .required()
+    .messages({
+      'string.min': 'New password must be at least 6 characters long',
+      'string.max': 'New password must not exceed 128 characters',
+      'any.required': 'New password is required',
+    })
+    .external(async (value, helpers) => {
+      // Ensure password is not too similar to current
+      if (value && helpers.prefs.context) {
+        const currentPassword = helpers.prefs.context.body?.currentPassword;
+        if (currentPassword && value === currentPassword) {
+          return helpers.error('any.invalid', {
+            message: 'New password cannot be the same as current password'
+          });
+        }
+      }
+    }),
+  
+  confirmPassword: Joi.string()
+    .required()
+    .valid(Joi.ref('newPassword'))
+    .messages({
+      'any.only': 'Password confirmation must match new password',
+      'any.required': 'Password confirmation is required',
+    }),
 });
 
 // Job posting validation
@@ -125,6 +250,8 @@ module.exports = {
   validate,
   registerValidation,
   loginValidation,
+  updateProfileValidation,
+  changePasswordValidation,
   jobValidation,
   interviewStartValidation,
   interviewAnalysisValidation,

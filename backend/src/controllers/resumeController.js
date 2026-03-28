@@ -3,6 +3,7 @@ const { s3Client, deleteFromS3, getS3FileUrl, getSignedFileUrl, extractFileKeyFr
 const resumeParserService = require('../services/resumeParser');
 const { successResponse, errorResponse, getFileExtension } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
+const { addResumeJob } = require('../services/queue');
 const fs = require('fs').promises; // Use promises version for async/await
 const path = require('path');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
@@ -407,6 +408,20 @@ const uploadResume = asyncHandler(async (req, res) => {
     } catch (skillUpdateError) {
       console.error('Error updating candidate skills from resume:', skillUpdateError);
       // Don't fail the upload if skill update fails
+    }
+
+    // Queue background job for potential reprocessing
+    try {
+      await addResumeJob(resume._id.toString(), {
+        candidateId: userId,
+        fileUrl: resume.fileUrl,
+        fileKey: resume.fileKey,
+        originalFileName: resume.originalFileName
+      });
+      console.log(`✅ Resume reprocessing job queued for ${resume._id}`);
+    } catch (queueError) {
+      console.warn('⚠️  Failed to queue resume job (non-critical):', queueError.message);
+      // Don't fail the upload if queue fails
     }
 
     return successResponse(res, {

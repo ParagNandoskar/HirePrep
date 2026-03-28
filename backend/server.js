@@ -32,6 +32,17 @@ async function startServer() {
     // Connect to database
     await connectDB();
     
+    // Start background job workers (if enabled)
+    if (process.env.ENABLE_WORKERS !== 'false') {
+      try {
+        require('./src/services/worker');
+        console.log('✅ Background job workers started');
+      } catch (error) {
+        console.warn('⚠️  Failed to start workers:', error.message);
+        console.log('   Continuing without workers. Run "npm run workers" in a separate terminal for background jobs.');
+      }
+    }
+    
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

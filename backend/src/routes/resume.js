@@ -16,6 +16,7 @@ const {
 } = require('../controllers/resumeController');
 const { authenticate, authorize } = require('../middlewares/authMiddleware');
 const { uploadToS3 } = require('../config/aws');
+const { getJobStatus, getQueueStats } = require('../services/queue');
 
 const router = express.Router();
 
@@ -31,6 +32,51 @@ router.get('/test', (req, res) => {
     userId: req.user.id,
     userRole: req.user.role
   });
+});
+
+// Background job status endpoints
+router.get('/job-status/:jobId', async (req, res) => {
+  try {
+    const status = await getJobStatus(req.params.jobId, 'resume-processing');
+    if (!status) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+    return res.json({
+      success: true,
+      data: status
+    });
+  } catch (error) {
+    console.error('❌ Error getting job status:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get job status'
+    });
+  }
+});
+
+router.get('/queue-stats/:queueName', async (req, res) => {
+  try {
+    const stats = await getQueueStats(req.params.queueName);
+    if (Object.keys(stats).length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Queue not found'
+      });
+    }
+    return res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('❌ Error getting queue stats:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get queue stats'
+    });
+  }
 });
 
 // Resume management routes that frontend expects

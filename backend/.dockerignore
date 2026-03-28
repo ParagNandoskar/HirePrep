@@ -1,0 +1,60 @@
+# Docker Build Ignore File
+# Prevents unnecessary files from being copied into Docker images
+
+# Git
+.git
+.gitignore
+.gitattributes
+.github
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+*.md
+
+# Development
+node_modules
+npm-debug.log
+yarn-error.log
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+.sublime-project
+.sublime-workspace
+
+# Testing
+.mocha
+coverage
+.nyc_output
+
+# Build artifacts
+dist
+build
+*.tsbuildinfo
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Upload directories (keep but don't build with large files)
+uploads/*
+!uploads/.gitkeep

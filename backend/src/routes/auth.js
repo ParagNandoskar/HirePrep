@@ -10,7 +10,13 @@ const {
   getUserStats 
 } = require('../controllers/authController');
 const { authenticate } = require('../middlewares/authMiddleware');
-const { validate, registerValidation, loginValidation } = require('../middlewares/validation');
+const { 
+  validate, 
+  registerValidation, 
+  loginValidation,
+  updateProfileValidation,
+  changePasswordValidation 
+} = require('../middlewares/validation');
 
 const router = express.Router();
 
@@ -23,8 +29,8 @@ router.post('/refresh-token', refreshAccessToken);
 router.use(authenticate); // Apply authentication middleware to all routes below
 
 router.get('/profile', getProfile);
-router.put('/profile', updateProfile);
-router.post('/change-password', changePassword);
+router.put('/profile', validate(updateProfileValidation), updateProfile);
+router.post('/change-password', validate(changePasswordValidation), changePassword);
 router.post('/logout', logout);
 router.get('/stats', getUserStats);
 
