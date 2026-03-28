@@ -429,17 +429,6 @@ const submitAnswer = asyncHandler(async (req, res) => {
 
     await interview.save();
 
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.to(`interview_${interviewId}`).emit('answerProcessed', {
-      interviewId,
-      answer,
-      evaluation,
-      nextAction,
-      conversationLength: interview.conversation.length,
-      averageScore: interview.analysisMetadata.averageScore
-    });
-
     return successResponse(res, {
       interviewId,
       evaluation,
@@ -485,13 +474,6 @@ const analyzeVideo = asyncHandler(async (req, res) => {
     interview.analysis.videoAnalysis = videoAnalysis;
     await interview.save();
 
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.to(`interview_${interviewId}`).emit('videoAnalysisUpdate', {
-      interviewId,
-      videoAnalysis
-    });
-
     return successResponse(res, {
       interviewId,
       videoAnalysis
@@ -530,13 +512,6 @@ const analyzeAudio = asyncHandler(async (req, res) => {
 
     interview.analysis.audioAnalysis = audioAnalysis;
     await interview.save();
-
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.to(`interview_${interviewId}`).emit('audioAnalysisUpdate', {
-      interviewId,
-      audioAnalysis
-    });
 
     return successResponse(res, {
       interviewId,

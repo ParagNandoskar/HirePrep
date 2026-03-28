@@ -250,8 +250,8 @@ exports.completeInterview = async (req, res) => {
     if (applicationId) {
       console.log(`💾 Updating application ${applicationId}...`);
 
-      // Build transcript — prefer in-memory session; fall back to MongoDB QuestionAnalysis
-      const context = geminiVoiceService.getInterviewProgress(sessionId);
+      // Build transcript — prefer Redis session; fall back to MongoDB QuestionAnalysis
+      const context = await geminiVoiceService.getInterviewProgress(sessionId);
       let transcript = [];
       let questionsAnswered = 0;
 
@@ -332,7 +332,7 @@ exports.completeInterview = async (req, res) => {
         console.error(`❌ Application ${applicationId} NOT FOUND in database!`);
       }
     } else {
-      const context = geminiVoiceService.getInterviewProgress(sessionId);
+      const context = await geminiVoiceService.getInterviewProgress(sessionId);
       let transcript = [];
       let questionsAnswered = 0;
 
@@ -456,7 +456,7 @@ exports.getProgress = async (req, res) => {
   try {
     const { sessionId } = req.params;
 
-    const progress = geminiVoiceService.getInterviewProgress(sessionId);
+    const progress = await geminiVoiceService.getInterviewProgress(sessionId);
 
     if (!progress) {
       return res.status(404).json({ error: 'Interview session not found' });

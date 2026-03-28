@@ -1,4 +1,5 @@
 const { getOpenAIFlash } = require('../config/openai');
+const redisClient = require('../config/redis');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
 const Candidate = require('../models/Candidate');
@@ -13,10 +14,123 @@ const parsePositiveInt = (value, fallback) => {
 
 class GeminiVoiceInterviewService {
   constructor() {
-    this.activeInterviews = new Map();
+    this.redisClient = redisClient;
+    this.SESSION_TTL = 3600; // 1 hour expiry for interview sessions
+    this.LOCK_TTL = 10; // 10 seconds for distributed lock
     this.MIN_BASELINE_QUESTIONS = parsePositiveInt(process.env.MIN_BASELINE_QUESTIONS, 3);
     this.MAX_FOLLOWUPS_PER_PRIMARY = parsePositiveInt(process.env.MAX_FOLLOWUPS_PER_PRIMARY, 2);
     this.MAX_TOTAL_QUESTIONS = parsePositiveInt(process.env.MAX_TOTAL_QUESTIONS, 7);
+  }
+
+  /**
+   * Store interview context in Redis
+   */
+  async setSessionContext(sessionId, context) {
+    try {
+      await this.redisClient.setex(
+        `interview:${sessionId}`,
+        this.SESSION_TTL,
+        JSON.stringify(context)
+      );
+    } catch (error) {
+      console.error(`❌ Error storing session ${sessionId} to Redis:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve interview context from Redis
+   */
+  async getSessionContext(sessionId) {
+    try {
+      const data = await this.redisClient.get(`interview:${sessionId}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error(`❌ Error retrieving session ${sessionId} from Redis:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Delete interview context from Redis
+   */
+  async deleteSessionContext(sessionId) {
+    try {
+      await this.redisClient.del(`interview:${sessionId}`);
+    } catch (error) {
+      console.error(`❌ Error deleting session ${sessionId} from Redis:`, error.message);
+    }
+  }
+
+  /**
+   * Simple distributed lock for concurrent writes (prevents race conditions in multi-instance)
+   */
+  async acquireLock(sessionId) {
+    const lockKey = `lock:${sessionId}`;
+    const lockId = Date.now().toString();
+    try {
+      // Try to set lock (NX = only if not exists)
+      const result = await this.redisClient.set(lockKey, lockId, 'EX', this.LOCK_TTL, 'NX');
+      return result ? lockId : null;
+    } catch (error) {
+      console.error(`Error acquiring lock for ${sessionId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Release distributed lock
+   */
+  async releaseLock(sessionId, lockId) {
+    const lockKey = `lock:${sessionId}`;
+    try {
+      const storedLockId = await this.redisClient.get(lockKey);
+      // Only delete if lock ID matches (prevent deletion of other locks)
+      if (storedLockId === lockId) {
+        await this.redisClient.del(lockKey);
+      }
+    } catch (error) {
+      console.error(`Error releasing lock for ${sessionId}:`, error.message);
+    }
+  }
+
+  /**
+   * Read-modify-write with lock to prevent race conditions
+   */
+  async updateSessionContextWithLock(sessionId, updateFn) {
+    let lockId = null;
+    try {
+      // Wait up to 2 seconds for lock
+      let attempts = 0;
+      while (!lockId && attempts < 20) {
+        lockId = await this.acquireLock(sessionId);
+        if (!lockId) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          attempts++;
+        }
+      }
+
+      if (!lockId) {
+        console.warn(`⚠️ Could not acquire lock for ${sessionId}`);
+        return null;
+      }
+
+      // Read current context
+      const context = await this.getSessionContext(sessionId);
+      if (!context) return null;
+
+      // Apply update function
+      const updatedContext = updateFn(context);
+
+      // Write back to Redis
+      await this.setSessionContext(sessionId, updatedContext);
+
+      return updatedContext;
+    } finally {
+      if (lockId) {
+        await this.releaseLock(sessionId, lockId);
+      }
+    }
   }
 
   /**
@@ -115,7 +229,7 @@ class GeminiVoiceInterviewService {
       }
 
       const sessionId = `${jobId || 'practice'}_${Date.now()}`;
-      this.activeInterviews.set(sessionId, interviewContext);
+      await this.setSessionContext(sessionId, interviewContext);
 
       return {
         sessionId,
@@ -132,12 +246,12 @@ class GeminiVoiceInterviewService {
    */
   async generateNextQuestion(sessionId) {
     try {
-      let context = this.activeInterviews.get(sessionId);
+      let context = await this.getSessionContext(sessionId);
 
       if (!context) {
-        // Session not in memory (e.g. backend restarted or hot-reload).
-        // Reconstruct a minimal context from persisted QuestionAnalysis docs.
-        console.warn(`⚠️ [generateNextQuestion] Session ${sessionId} not in memory — reconstructing from MongoDB`);
+        // Session expired in Redis (e.g. backend restarted, TTL expired, or session lost).
+        // Reconstruct a minimal context from persisted QuestionAnalysis docs (partial recovery).
+        console.warn(`⚠️ [generateNextQuestion] Session ${sessionId} expired in Redis — falling back to partial MongoDB restore`);
 
         const pastQuestions = await QuestionAnalysis.find({ sessionId })
           .sort({ questionNumber: 1 })
@@ -171,8 +285,8 @@ class GeminiVoiceInterviewService {
           maxTotalQuestions: this.MAX_TOTAL_QUESTIONS
         };
 
-        // Cache it so subsequent calls within this request lifecycle are fast
-        this.activeInterviews.set(sessionId, context);
+        // Cache it in Redis so subsequent calls can access it
+        await this.setSessionContext(sessionId, context);
       }
 
       const model = getOpenAIFlash();
@@ -201,7 +315,7 @@ class GeminiVoiceInterviewService {
       });
       context.currentQuestionIndex++;
 
-      this.activeInterviews.set(sessionId, context);
+      await this.setSessionContext(sessionId, context);
 
       return {
         question,
@@ -310,11 +424,11 @@ Generate ONLY the question text, no labels or numbers.`;
    */
   async processAnswer(sessionId, answerText, behavioralData = null) {
     try {
-      const context = this.activeInterviews.get(sessionId);
+      const context = await this.getSessionContext(sessionId);
       if (!context) {
-        // Session not in memory (e.g. backend restarted) — behavioral data
+        // Session expired in Redis (e.g. backend restarted) — behavioral data
         // is already persisted to MongoDB by the controller. Non-fatal.
-        console.warn(`⚠️ [processAnswer] Session ${sessionId} not in memory — skipping history update`);
+        console.warn(`⚠️ [processAnswer] Session ${sessionId} expired in Redis — skipping history update`);
         return { success: true, message: 'Answer recorded (session not in memory)' };
       }
 
@@ -356,7 +470,7 @@ Generate ONLY the question text, no labels or numbers.`;
       context.completionConfidence = completionAssessment.confidence;
       context.completionReason = completionAssessment.reason;
 
-      this.activeInterviews.set(sessionId, context);
+      await this.setSessionContext(sessionId, context);
 
       return {
         success: true,
@@ -832,8 +946,8 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
         analysis.insights = `${analysis.insights || ''} One focus switch was detected and treated as potentially accidental.`.trim();
       }
 
-      // Clean up in-memory session
-      if (context) this.activeInterviews.delete(sessionId);
+      // Clean up Redis session
+      if (context) await this.deleteSessionContext(sessionId);
 
       return analysis;
     } catch (error) {
@@ -845,8 +959,8 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
   /**
    * Get interview progress
    */
-  getInterviewProgress(sessionId) {
-    const context = this.activeInterviews.get(sessionId);
+  async getInterviewProgress(sessionId) {
+    const context = await this.getSessionContext(sessionId);
     if (!context) {
       return null;
     }
@@ -865,8 +979,8 @@ Format your response as JSON with keys: contentScore, communicationScore, techni
   /**
    * End interview session
    */
-  endInterview(sessionId) {
-    this.activeInterviews.delete(sessionId);
+  async endInterview(sessionId) {
+    await this.deleteSessionContext(sessionId);
   }
 }
 
