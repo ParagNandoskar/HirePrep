@@ -26,8 +26,14 @@
  *         └───────────────────────────────────────────────────────┘
  */
 
+import { API_BASE_PATH_URL } from '../services/apiConfig';
+
 class RealTimeAnalysisManager {
-  constructor(interviewId, API_URL = 'http://localhost:5000/api') {
+  constructor(interviewId, API_URL = API_BASE_PATH_URL) {
+    if (!API_URL) {
+      throw new Error('Missing VITE_API_URL (or VITE_API_BASE_URL) in production environment');
+    }
+
     this.interviewId = interviewId;
     this.apiUrl = API_URL;
     

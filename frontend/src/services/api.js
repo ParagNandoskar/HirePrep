@@ -1,6 +1,4 @@
-// API configuration
-const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim()
-const API_BASE_URL = configuredApiBaseUrl || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')
+import { buildApiUrl } from './apiConfig'
 
 // Simple cache to prevent duplicate requests
 const requestCache = new Map()
@@ -22,13 +20,7 @@ export const apiService = {
       return requestCache.get(cacheKey)
     }
     
-    if (!API_BASE_URL) {
-      throw new Error('Missing VITE_API_BASE_URL in production environment')
-    }
-
-    const normalizedBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL
-    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
-    const url = `${normalizedBaseUrl}${normalizedEndpoint}`
+    const url = buildApiUrl(endpoint)
     
     const token = localStorage.getItem('authToken')
     
@@ -144,7 +136,7 @@ export const apiService = {
 
   // File upload request (for resumes, images, etc.)
   async uploadFile(endpoint, formData, options = {}) {
-    const url = `${API_BASE_URL}${endpoint}`
+    const url = buildApiUrl(endpoint)
     const token = localStorage.getItem('authToken')
     
     const config = {
@@ -321,7 +313,7 @@ export const resumeAPI = {
   deleteResume: (id) => apiService.delete(`/resumes/${id}`),
   getResumeByUserId: (userId) => apiService.get(`/resumes/${userId}`),
   getResumeSignedUrl: (userId) => apiService.get(`/resumes/${userId}/signed-url`),
-  viewResume: (id) => `${API_BASE_URL}/resumes/view/${id}`,
+  viewResume: (id) => buildApiUrl(`/resumes/view/${id}`),
   downloadResume: (candidateId) => apiService.get(`/resumes/download/${candidateId}`),
   reprocessResume: (candidateId) => apiService.post(`/resumes/reprocess/${candidateId}`)
 }
