@@ -1,5 +1,6 @@
 // API configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim()
+const API_BASE_URL = configuredApiBaseUrl || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')
 
 // Simple cache to prevent duplicate requests
 const requestCache = new Map()
@@ -21,7 +22,13 @@ export const apiService = {
       return requestCache.get(cacheKey)
     }
     
-    const url = `${API_BASE_URL}${endpoint}`
+    if (!API_BASE_URL) {
+      throw new Error('Missing VITE_API_BASE_URL in production environment')
+    }
+
+    const normalizedBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+    const url = `${normalizedBaseUrl}${normalizedEndpoint}`
     
     const token = localStorage.getItem('authToken')
     
