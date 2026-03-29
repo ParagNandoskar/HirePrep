@@ -3,6 +3,12 @@ const Interview = require('../models/Interview');
 const Leaderboard = require('../models/Leaderboard');
 const interviewService = require('./interviewService');
 const FormData = require('form-data');
+const {
+  VIDEO_SERVICE_URL,
+  AUDIO_SERVICE_URL,
+  MICROSERVICE_TIMEOUT_MS,
+  withMicroserviceTimeout
+} = require('../config/services');
 
 /**
  * Analysis Service - Orchestrates video/audio analysis and leaderboard updates
@@ -16,8 +22,8 @@ const FormData = require('form-data');
  */
 class AnalysisService {
   constructor() {
-    this.videoServiceUrl = process.env.PYTHON_VIDEO_SERVICE_URL || 'http://localhost:8001';
-    this.audioServiceUrl = process.env.PYTHON_AUDIO_SERVICE_URL || 'http://localhost:8002';
+    this.videoServiceUrl = VIDEO_SERVICE_URL;
+    this.audioServiceUrl = AUDIO_SERVICE_URL;
   }
 
   /**
@@ -45,10 +51,7 @@ class AnalysisService {
         interviewId: interviewId,
         candidateId: candidateId,
         questionId: questionId
-      }, {
-        timeout: 30000,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
       console.log(`\n✅ VIDEO ANALYSIS SUCCESS`);
       console.log(`   Overall Score: ${response.data.overallVideoScore || 0}/100`);
@@ -72,7 +75,13 @@ class AnalysisService {
       return {
         success: false,
         error: error.message,
-        data: null
+        data: {
+          overallVideoScore: 0,
+          eyeContactScore: 0,
+          engagementScore: 0,
+          confidenceScore: 0,
+          analysisMetadata: { framesAnalyzed: 0, fallback: true }
+        }
       };
     }
   }
@@ -96,10 +105,7 @@ class AnalysisService {
       const response = await axios.post(`${this.audioServiceUrl}/analyze-audio`, {
         audio_base64: audioBase64,
         transcript: transcript
-      }, {
-        timeout: 30000,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
       console.log(`\n✅ AUDIO ANALYSIS SUCCESS`);
       console.log(`   Voice Confidence: ${response.data.voice_confidence || 0}/100`);
@@ -125,7 +131,15 @@ class AnalysisService {
       return {
         success: false,
         error: error.message,
-        data: null
+        data: {
+          voice_confidence: 0,
+          speaking_rate: 0,
+          volume_consistency: 0,
+          nervousness_score: 0,
+          filler_words: { count: 0, percentage: 0 },
+          overall_score: 0,
+          fallback: true
+        }
       };
     }
   }

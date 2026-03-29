@@ -13,6 +13,7 @@ const { isRedisConnected } = require('../config/redis');
 const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW, 10) || 60000; // 1 minute default
 const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX, 10) || 100; // 100 requests per window
 const DISABLED = process.env.RATE_LIMIT_DISABLED === 'true';
+let memoryLimiterLogged = false;
 
 /**
  * Helper: Create rate limiter with Redis or memory fallback
@@ -39,8 +40,9 @@ function createLimiter(options) {
     }
   } else {
     // Redis not available - use memory store
-    if (!DISABLED) {
+    if (!DISABLED && !memoryLimiterLogged) {
       console.log('⚠️  Redis unavailable, using in-memory rate limiting (not persistent across restarts)');
+      memoryLimiterLogged = true;
     }
     store = new (require('express-rate-limit').MemoryStore)();
   }

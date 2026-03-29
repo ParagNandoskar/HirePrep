@@ -1,8 +1,14 @@
 const axios = require('axios');
+const {
+    VIDEO_SERVICE_URL,
+    AUDIO_SERVICE_URL,
+    MICROSERVICE_TIMEOUT_MS,
+    withMicroserviceTimeout
+} = require('../config/services');
 
 // Python microservices URLs
-const VIDEO_ANALYSIS_URL = process.env.VIDEO_ANALYSIS_URL || 'http://localhost:8001';
-const AUDIO_ANALYSIS_URL = process.env.AUDIO_ANALYSIS_URL || 'http://localhost:8002';
+const VIDEO_ANALYSIS_URL = VIDEO_SERVICE_URL;
+const AUDIO_ANALYSIS_URL = AUDIO_SERVICE_URL;
 
 class BehavioralAnalysisService {
     /**
@@ -18,12 +24,7 @@ class BehavioralAnalysisService {
             const response = await axios.post(`${VIDEO_ANALYSIS_URL}/analyze-video`, {
                 videoData: videoFrames,
                 interviewId: interviewId
-            }, {
-                timeout: 30000, // 30 second timeout
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
+            }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
             const analysis = response.data;
 
@@ -72,7 +73,7 @@ class BehavioralAnalysisService {
                 interviewId,
                 audioData: [audioBase64],
                 transcript: answerText || "" // Pass transcript for VADER/DistilBERT
-            });
+            }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
             console.log('🎤 Audio Analysis ML Result:', JSON.stringify(response.data, null, 2));
             const analysis = response.data;
@@ -124,10 +125,7 @@ class BehavioralAnalysisService {
                 audio_base64,
                 interviewId,
                 transcript
-            }, {
-                timeout: 30000,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
             const analysis = response.data;
             console.log('🎤 Audio analysis result:', JSON.stringify(analysis, null, 2));
@@ -340,14 +338,14 @@ class BehavioralAnalysisService {
         };
 
         try {
-            await axios.get(`${VIDEO_ANALYSIS_URL}/health`, { timeout: 5000 });
+            await axios.get(`${VIDEO_ANALYSIS_URL}/health`, { timeout: MICROSERVICE_TIMEOUT_MS });
             results.video = true;
         } catch (error) {
             console.warn('⚠️  Video analysis service not responding');
         }
 
         try {
-            await axios.get(`${AUDIO_ANALYSIS_URL}/health`, { timeout: 5000 });
+            await axios.get(`${AUDIO_ANALYSIS_URL}/health`, { timeout: MICROSERVICE_TIMEOUT_MS });
             results.audio = true;
         } catch (error) {
             console.warn('⚠️  Audio analysis service not responding');

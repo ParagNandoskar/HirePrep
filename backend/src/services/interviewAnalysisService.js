@@ -14,10 +14,16 @@
 const axios = require('axios');
 const Interview = require('../models/Interview');
 const videoDeletionService = require('./videoDeletionService');
+const {
+  VIDEO_SERVICE_URL,
+  AUDIO_SERVICE_URL,
+  MICROSERVICE_TIMEOUT_MS,
+  withMicroserviceTimeout
+} = require('../config/services');
 
 // Python microservices URLs
-const VIDEO_ANALYSIS_SERVICE = process.env.VIDEO_ANALYSIS_URL || 'http://localhost:8001';
-const AUDIO_ANALYSIS_SERVICE = process.env.AUDIO_ANALYSIS_URL || 'http://localhost:8002';
+const VIDEO_ANALYSIS_SERVICE = VIDEO_SERVICE_URL;
+const AUDIO_ANALYSIS_SERVICE = AUDIO_SERVICE_URL;
 
 /**
  * Analyze completed interview with video/audio analysis
@@ -150,7 +156,7 @@ const analyzeVideo = async (videoUrl) => {
     
     // Check if video analysis service is configured
     if (!VIDEO_ANALYSIS_SERVICE) {
-      console.error('❌ VIDEO_ANALYSIS_URL not configured in environment');
+      console.error('❌ VIDEO_SERVICE_URL not configured in environment');
       console.warn('🚨 USING MOCK DATA');
       return getMockVideoAnalysis();
     }
@@ -159,7 +165,7 @@ const analyzeVideo = async (videoUrl) => {
     const response = await axios.post(
       `${VIDEO_ANALYSIS_SERVICE}/analyze-video`,
       { videoUrl },
-      { timeout: 300000 } // 5 minute timeout
+      withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS)
     );
 
     console.log(`\n✅ VIDEO ANALYSIS SUCCESS`);
@@ -195,7 +201,7 @@ const analyzeAudio = async (videoUrl) => {
     
     // Check if audio analysis service is configured
     if (!AUDIO_ANALYSIS_SERVICE) {
-      console.error('❌ AUDIO_ANALYSIS_URL not configured in environment');
+      console.error('❌ AUDIO_SERVICE_URL not configured in environment');
       console.warn('🚨 USING MOCK DATA');
       return getMockAudioAnalysis();
     }
@@ -204,7 +210,7 @@ const analyzeAudio = async (videoUrl) => {
     const response = await axios.post(
       `${AUDIO_ANALYSIS_SERVICE}/analyze-audio`,
       { videoUrl },
-      { timeout: 300000 } // 5 minute timeout
+      withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS)
     );
 
     console.log(`\n✅ AUDIO ANALYSIS SUCCESS`);

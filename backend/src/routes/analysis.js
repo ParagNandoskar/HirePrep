@@ -227,6 +227,11 @@ router.get('/my-rank/:jobId', authenticate, authorize('student'), asyncHandler(a
  */
 router.get('/health', asyncHandler(async (req, res) => {
   const axios = require('axios');
+  const {
+    VIDEO_SERVICE_URL,
+    AUDIO_SERVICE_URL,
+    MICROSERVICE_TIMEOUT_MS
+  } = require('../config/services');
   
   const checks = {
     videoService: false,
@@ -236,8 +241,7 @@ router.get('/health', asyncHandler(async (req, res) => {
 
   // Check video service
   try {
-    const videoUrl = process.env.PYTHON_VIDEO_SERVICE_URL || 'http://localhost:8001';
-    await axios.get(`${videoUrl}/health`, { timeout: 5000 });
+    await axios.get(`${VIDEO_SERVICE_URL}/health`, { timeout: MICROSERVICE_TIMEOUT_MS });
     checks.videoService = true;
   } catch (error) {
     console.log('Video service not available:', error.message);
@@ -245,8 +249,7 @@ router.get('/health', asyncHandler(async (req, res) => {
 
   // Check audio service
   try {
-    const audioUrl = process.env.PYTHON_AUDIO_SERVICE_URL || 'http://localhost:8002';
-    await axios.get(`${audioUrl}/health`, { timeout: 5000 });
+    await axios.get(`${AUDIO_SERVICE_URL}/health`, { timeout: MICROSERVICE_TIMEOUT_MS });
     checks.audioService = true;
   } catch (error) {
     console.log('Audio service not available:', error.message);

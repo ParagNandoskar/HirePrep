@@ -1,19 +1,16 @@
 const axios = require('axios'); // NEW: Add Axios for microservice communication
 const { getEmbeddingsModel } = require('../config/openai');
+const { RESUME_SERVICE_URL, MICROSERVICE_TIMEOUT_MS, withMicroserviceTimeout } = require('../config/services');
 // REMOVED: calculateResumeJobMatch, calculateExperienceMatch, calculateEducationMatch imports
 // These functions are now handled by the Python NLP microservice
-
-const PYTHON_NLP_SERVICE_URL = process.env.PYTHON_NLP_SERVICE_URL || 'http://localhost:5001'; // Python NLP microservice URL
 
 // NEW: Function to call Python NLP service for job matching
 async function matchJobWithPythonNLP(resumeData, jobData) {
   try {
-    const response = await axios.post(`${PYTHON_NLP_SERVICE_URL}/match-job`, {
+    const response = await axios.post(`${RESUME_SERVICE_URL}/match-job`, {
       resume: resumeData,
       job: jobData
-    }, {
-      timeout: 30000, // 30 second timeout (increased from 15s for reliable NLP processing)
-    });
+    }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
     
     if (response.data.success) {
       return response.data.data;

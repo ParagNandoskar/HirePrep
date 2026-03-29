@@ -1,5 +1,11 @@
 const { getOpenAIFlash } = require('../config/openai');
 const axios = require('axios');
+const {
+  VIDEO_SERVICE_URL,
+  AUDIO_SERVICE_URL,
+  MICROSERVICE_TIMEOUT_MS,
+  withMicroserviceTimeout
+} = require('../config/services');
 
 class InterviewService {
   // Generate dynamic interview questions using OpenAI
@@ -110,7 +116,7 @@ class InterviewService {
   // Process video analysis data from Python microservice
   async processVideoAnalysis(videoBase64, interviewId, candidateId, questionId) {
     try {
-      const pythonServiceUrl = process.env.PYTHON_VIDEO_SERVICE_URL || 'http://localhost:8001';
+      const pythonServiceUrl = VIDEO_SERVICE_URL;
 
       // Python service expects: { "frame_base64": "...", "candidate_id": "...", "interview_id": "...", "question_id": 1 }
       const response = await axios.post(`${pythonServiceUrl}/analyze-frame`, {
@@ -118,12 +124,7 @@ class InterviewService {
         candidate_id: candidateId,
         interview_id: interviewId,
         question_id: questionId
-      }, {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
       // Response format: { video_confidence, emotions, face_detection, processing_time }
       const data = response.data;
@@ -163,18 +164,13 @@ class InterviewService {
   // Process audio analysis data from Python microservice
   async processAudioAnalysis(audioBase64, transcript) {
     try {
-      const pythonServiceUrl = process.env.PYTHON_AUDIO_SERVICE_URL || 'http://localhost:8002';
+      const pythonServiceUrl = AUDIO_SERVICE_URL;
 
       // Python service expects: { "audio_base64": "...", "transcript": "..." }
       const response = await axios.post(`${pythonServiceUrl}/analyze-audio`, {
         audio_base64: audioBase64,
         transcript: transcript || ''
-      }, {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      }, withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS));
 
       // Response format from signal processing version:
       // { voice_confidence, speaking_rate, volume_consistency, nervousness_score,

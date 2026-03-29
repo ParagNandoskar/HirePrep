@@ -1,73 +1,17 @@
-# Multi-stage Dockerfile for HirePrep Backend
-# Optimized for both development and production
-
-# ============================================
-# Stage 1: Dependencies
-# ============================================
-FROM node:20-alpine AS dependencies
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy dependency manifests first for better Docker layer caching.
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
-
-# ============================================
-# Stage 2: Development
-# ============================================
-FROM node:20-alpine AS development
-
-WORKDIR /app
-
-# Install development dependencies
-COPY package*.json ./
+# Install all dependencies (includes dev deps needed when running npm run dev).
 RUN npm ci
 
-# Copy application code
+# Copy application source.
 COPY . .
 
-# Expose port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
-
-# Start development server
-CMD ["npm", "start"]
-
-# ============================================
-# Stage 3: Production
-# ============================================
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Create app user for security (non-root)
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-# Copy dependencies from dependencies stage
-COPY --from=dependencies --chown=nodejs:nodejs /app/node_modules ./node_modules
-
-# Copy package files
-COPY --chown=nodejs:nodejs package*.json ./
-
-# Copy application code
-COPY --chown=nodejs:nodejs . .
-
-# Switch to non-root user
-USER nodejs
-
-# Expose port
-EXPOSE 5000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
-
-# Start production server
+# Runtime environment variables are provided via docker-compose env_file/environment.
 CMD ["node", "server.js"]

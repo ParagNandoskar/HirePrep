@@ -18,11 +18,12 @@ require('dotenv').config();
 
 const Interview = require('../models/Interview');
 const analysisService = require('../services/analysisService');
+const { SERVICES } = require('../config/services');
 
 // Service URLs
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
-const VIDEO_SERVICE_URL = process.env.PYTHON_VIDEO_SERVICE_URL || 'http://localhost:8001';
-const AUDIO_SERVICE_URL = process.env.PYTHON_AUDIO_SERVICE_URL || 'http://localhost:8002';
+const VIDEO_SERVICE_URL = SERVICES.VIDEO;
+const AUDIO_SERVICE_URL = SERVICES.AUDIO;
 
 console.log('\n' + '='.repeat(80));
 console.log('🧪 END-TO-END PARALLEL ANALYSIS TEST');
@@ -354,7 +355,9 @@ async function runAllTests() {
     if (!results.serviceHealth) {
       console.error('\n❌ Service health check failed. Please ensure all services are running:');
       console.error('   - Backend: npm run dev (port 3000)');
-      console.error('   - Python Services: cd backend/python-services && python3 app.py');
+      console.error('   - NLP Service: cd backend/nlp-service && python app.py');
+      console.error('   - Audio Service: cd backend/audio-service && python app.py');
+      console.error('   - Video Service: cd backend/video-service && python app.py');
       process.exit(1);
     }
     

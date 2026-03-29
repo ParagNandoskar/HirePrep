@@ -1,6 +1,6 @@
 # HirePrep - Complete Setup & Implementation Guide
 
-**Last Updated:** March 28, 2026  
+**Last Updated:** March 29, 2026  
 **Status:** ✅ Production Ready
 
 ---
@@ -435,18 +435,24 @@ pm2 status
 ### Docker Setup
 
 ```bash
-# Build images
-docker-compose build
-
-# Start all services
-docker-compose up -d
+# Start Dockerized services from project root
+cd ..
+docker compose up --build -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop services
-docker-compose down
+docker compose down
 ```
+
+**Current Dockerized services:**
+- backend on port 5000
+- nlp-service on port 8000
+- audio-service on port 8001
+- redis on port 6379
+
+**Hybrid note:** `video-service` is intentionally kept outside Docker and runs locally/ngrok.
 
 ---
 
@@ -716,7 +722,8 @@ pm2 logs | grep -E "Resume|Job|Worker"
 - ✅ Redis non-blocking with graceful fallback
 - ✅ Request validation with Joi
 - ✅ Rate limiting (4 tiers)
-- ✅ Docker containerization ready
+- ✅ Docker containerization ready (backend + nlp-service + audio-service + redis)
+- ✅ Hybrid deployment documented (video-service local/ngrok)
 - ✅ Frontend CORS set to 5173
 - ✅ Job status endpoints available
 - ✅ Complete documentation provided
@@ -725,7 +732,7 @@ pm2 logs | grep -E "Resume|Job|Worker"
 
 **Status:** 🎉 **PRODUCTION READY**
 
-**Last Updated:** March 28, 2026  
+**Last Updated:** March 29, 2026  
 **By:** Development Team
 
 For detailed logs and monitoring data, check `backend/logs/` folder.

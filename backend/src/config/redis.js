@@ -1,90 +1,83 @@
 const Redis = require('ioredis');
+const { EventEmitter } = require('events');
 
-// Redis connection status flag - track if Redis is available
+const REDIS_ENABLED = (process.env.REDIS_ENABLED || 'false').toLowerCase() === 'true';
+
 let redisReady = false;
 let connectionErrorLogged = false;
 
-// Production-grade Redis client configuration
-const redisConfig = {
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-  db: parseInt(process.env.REDIS_DB, 10) || 0,
-  
-  // Connection configuration - SHORT timeouts so app doesn't block
-  connectTimeout: 5000,  // 5 seconds (reduced from 10)
-  commandTimeout: 3000,  // 3 seconds (reduced from 5)
-  
-  // Retry strategy: exponential backoff, but give up after retries
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    if (times > 5) {
-      // Stop retrying after 5 attempts
-      // Server will continue without Redis (fallback to MongoDB)
-      return null;
-    }
-    return delay;
-  },
-  
-  // Request queue settings - CRITICAL for non-blocking
-  maxRetriesPerRequest: 3, // Reduced from null
-  enableReadyCheck: false,
-  enableOfflineQueue: false, // CRITICAL: don't queue commands if Redis is down
-  
-  // Reconnection behavior
-  autoResubscribe: true,
-  autoRessubscribe: true,
-
-  // Don't fail on connection errors - let app continue
-  lazyConnect: false,
-};
-
-const redisClient = new Redis(redisConfig);
-
-// Event: Initial connection attempt starting
-redisClient.on('connecting', () => {
-  console.log('🔌 Redis: Attempting to connect...');
-});
-
-// Event: Connection established
-redisClient.on('connect', () => {
-  console.log(`✅ Redis connected at ${redisClient.options.host}:${redisClient.options.port}`);
-  connectionErrorLogged = false;
-  redisReady = true; // Mark as ready
-});
-
-// Event: Connection ready for commands
-redisClient.on('ready', () => {
-  console.log('✅ Redis ready for commands');
-  redisReady = true; // Mark as ready
-});
-
-// Event: Attempting to reconnect after disconnect
-redisClient.on('reconnecting', () => {
-  console.log('🔄 Redis: Reconnecting...');
-  redisReady = false; // Mark as not ready
-});
-
-// Event: Connection error (non-critical, MongoDB fallback available)
-// CRITICAL: DO NOT THROW - let app continue
-redisClient.on('error', (err) => {
-  if (!connectionErrorLogged) {
-    const errorMsg = err.message || err.code || 'Unknown error';
-    console.warn(`⚠️  Redis unavailable: ${errorMsg}`);
-    console.warn('⚠️  Using MongoDB fallback for session/cache storage');
-    connectionErrorLogged = true;
+class MockRedisClient extends EventEmitter {
+  constructor() {
+    super();
+    this.status = 'disabled';
+    this.options = {
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+    };
   }
-  redisReady = false; // Mark as not ready
-});
 
-// Event: Connection closed unexpectedly
-redisClient.on('close', () => {
-  console.log('⚠️  Redis: Connection closed');
-  redisReady = false; // Mark as not ready
-});
+  async get() { return null; }
+  async setex() { return 'OK'; }
+  async del() { return 0; }
+  async keys() { return []; }
+  async flushdb() { return 'OK'; }
+  async ping() { throw new Error('Redis disabled'); }
+  async info() { return ''; }
+  async dbsize() { return 0; }
+}
 
-// Health check function
+let redisClient;
+
+if (!REDIS_ENABLED) {
+  redisClient = new MockRedisClient();
+  console.log('ℹ️  Redis disabled (REDIS_ENABLED=false). Using in-memory/MongoDB fallbacks.');
+} else {
+  const redisConfig = {
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+    db: parseInt(process.env.REDIS_DB, 10) || 0,
+    connectTimeout: 3000,
+    commandTimeout: 2000,
+    retryStrategy: (times) => {
+      if (times > 2) return null;
+      return Math.min(times * 200, 1000);
+    },
+    maxRetriesPerRequest: 1,
+    enableReadyCheck: false,
+    enableOfflineQueue: false,
+    lazyConnect: false,
+  };
+
+  redisClient = new Redis(redisConfig);
+
+  redisClient.on('connect', () => {
+    console.log(`✅ Redis connected at ${redisClient.options.host}:${redisClient.options.port}`);
+    connectionErrorLogged = false;
+    redisReady = true;
+  });
+
+  redisClient.on('ready', () => {
+    redisReady = true;
+  });
+
+  redisClient.on('error', (err) => {
+    if (!connectionErrorLogged) {
+      const errorMsg = err.message || err.code || 'Unknown error';
+      console.warn(`⚠️  Redis unavailable: ${errorMsg}`);
+      console.warn('⚠️  Using MongoDB fallback for session/cache storage');
+      connectionErrorLogged = true;
+    }
+    redisReady = false;
+  });
+
+  redisClient.on('close', () => {
+    redisReady = false;
+  });
+}
+
 async function checkRedisHealth() {
+  if (!REDIS_ENABLED) return false;
   try {
     const pong = await redisClient.ping();
     return pong === 'PONG';
@@ -93,12 +86,12 @@ async function checkRedisHealth() {
   }
 }
 
-// Check if Redis is connected (non-blocking)
 function isRedisConnected() {
-  return redisReady && redisClient.status === 'ready';
+  return REDIS_ENABLED && redisReady && redisClient.status === 'ready';
 }
 
 module.exports = redisClient;
+module.exports.REDIS_ENABLED = REDIS_ENABLED;
 module.exports.checkRedisHealth = checkRedisHealth;
 module.exports.isRedisConnected = isRedisConnected;
 module.exports.redisReady = () => redisReady;

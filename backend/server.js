@@ -3,6 +3,7 @@ require('dotenv').config();
 
 const connectDB = require('./src/config/database');
 const { loadSecrets } = require('./src/config/secrets');
+const { REDIS_ENABLED, checkRedisHealth } = require('./src/config/redis');
 const app = require('./src/app');
 const path = require('path');
 
@@ -32,14 +33,23 @@ async function startServer() {
     // Connect to database
     await connectDB();
     
-    // Start background job workers (if enabled)
+    // Start background job workers only when Redis queueing is enabled and healthy.
     if (process.env.ENABLE_WORKERS !== 'false') {
-      try {
-        require('./src/services/worker');
-        console.log('✅ Background job workers started');
-      } catch (error) {
-        console.warn('⚠️  Failed to start workers:', error.message);
-        console.log('   Continuing without workers. Run "npm run workers" in a separate terminal for background jobs.');
+      if (!REDIS_ENABLED) {
+        console.log('ℹ️  Workers disabled because REDIS_ENABLED=false');
+      } else {
+        const redisHealthy = await checkRedisHealth();
+        if (!redisHealthy) {
+          console.warn('⚠️  Workers not started because Redis is unavailable');
+        } else {
+          try {
+            require('./src/services/worker');
+            console.log('✅ Background job workers started');
+          } catch (error) {
+            console.warn('⚠️  Failed to start workers:', error.message);
+            console.log('   Continuing without workers. Run "npm run workers" in a separate terminal for background jobs.');
+          }
+        }
       }
     }
     

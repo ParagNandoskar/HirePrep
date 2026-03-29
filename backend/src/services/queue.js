@@ -1,5 +1,6 @@
 const { Queue, Worker, QueueScheduler } = require('bullmq');
 const redisClient = require('../config/redis');
+const { REDIS_ENABLED } = require('../config/redis');
 
 /**
  * Bull Queue Configuration
@@ -15,11 +16,24 @@ const redisConnection = {
   db: parseInt(process.env.REDIS_DB, 10) || 0,
 };
 
+const queuesEnabled = REDIS_ENABLED;
+
+const createDisabledQueue = (name) => ({
+  name,
+  add: async () => {
+    throw new Error(`Queue '${name}' is disabled because REDIS_ENABLED=false`);
+  },
+  getJob: async () => null,
+  getCountsBy: async () => ({ active: 0, completed: 0, failed: 0, delayed: 0, waiting: 0, paused: 0 }),
+  clean: async () => {},
+  close: async () => {}
+});
+
 /**
  * Resume Parsing Queue
  * Processes uploaded resumes with NLP
  */
-const resumeQueue = new Queue('resume-processing', {
+const resumeQueue = queuesEnabled ? new Queue('resume-processing', {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 3, // Retry 3 times on failure
@@ -30,13 +44,13 @@ const resumeQueue = new Queue('resume-processing', {
     removeOnComplete: true, // Remove successful jobs
     removeOnFail: false, // Keep failed jobs for debugging
   },
-});
+}) : createDisabledQueue('resume-processing');
 
 /**
  * Interview Processing Queue
  * Handles AI-powered interview analysis
  */
-const interviewQueue = new Queue('interview-analysis', {
+const interviewQueue = queuesEnabled ? new Queue('interview-analysis', {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 2,
@@ -47,13 +61,13 @@ const interviewQueue = new Queue('interview-analysis', {
     removeOnComplete: true,
     removeOnFail: false,
   },
-});
+}) : createDisabledQueue('interview-analysis');
 
 /**
  * Recommendation Engine Queue
  * Matches job postings with candidates
  */
-const recommendationQueue = new Queue('job-recommendations', {
+const recommendationQueue = queuesEnabled ? new Queue('job-recommendations', {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 2,
@@ -64,13 +78,13 @@ const recommendationQueue = new Queue('job-recommendations', {
     removeOnComplete: true,
     removeOnFail: false,
   },
-});
+}) : createDisabledQueue('job-recommendations');
 
 /**
  * Email Queue
  * Handles notification emails (optional)
  */
-const emailQueue = new Queue('email-notifications', {
+const emailQueue = queuesEnabled ? new Queue('email-notifications', {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 5, // Email is important, retry more times
@@ -81,7 +95,7 @@ const emailQueue = new Queue('email-notifications', {
     removeOnComplete: true,
     removeOnFail: false,
   },
-});
+}) : createDisabledQueue('email-notifications');
 
 /**
  * Add job to resume processing queue
@@ -90,6 +104,10 @@ const emailQueue = new Queue('email-notifications', {
  * @returns {Promise<Job>}
  */
 async function addResumeJob(resumeId, data) {
+  if (!queuesEnabled) {
+    console.warn('⚠️  Resume queue skipped (REDIS_ENABLED=false)');
+    return { id: `disabled-resume-${Date.now()}` };
+  }
   try {
     const job = await resumeQueue.add(
       `parse-resume-${resumeId}`,
@@ -111,6 +129,10 @@ async function addResumeJob(resumeId, data) {
  * @returns {Promise<Job>}
  */
 async function addInterviewJob(interviewId, data) {
+  if (!queuesEnabled) {
+    console.warn('⚠️  Interview queue skipped (REDIS_ENABLED=false)');
+    return { id: `disabled-interview-${Date.now()}` };
+  }
   try {
     const job = await interviewQueue.add(
       `analyze-interview-${interviewId}`,
@@ -132,6 +154,10 @@ async function addInterviewJob(interviewId, data) {
  * @returns {Promise<Job>}
  */
 async function addRecommendationJob(userId, data) {
+  if (!queuesEnabled) {
+    console.warn('⚠️  Recommendation queue skipped (REDIS_ENABLED=false)');
+    return { id: `disabled-recommendation-${Date.now()}` };
+  }
   try {
     const job = await recommendationQueue.add(
       `recommend-jobs-${userId}`,
@@ -154,6 +180,10 @@ async function addRecommendationJob(userId, data) {
  * @returns {Promise<Job>}
  */
 async function addEmailJob(email, template, data) {
+  if (!queuesEnabled) {
+    console.warn('⚠️  Email queue skipped (REDIS_ENABLED=false)');
+    return { id: `disabled-email-${Date.now()}` };
+  }
   try {
     const job = await emailQueue.add(
       `send-${template}`,
@@ -290,6 +320,7 @@ async function closeQueues() {
 }
 
 module.exports = {
+  queuesEnabled,
   resumeQueue,
   interviewQueue,
   recommendationQueue,

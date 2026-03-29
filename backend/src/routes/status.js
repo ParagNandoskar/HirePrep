@@ -2,6 +2,7 @@ const express = require('express');
 const { successResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
 const { checkS3Connection } = require('../config/aws');
+const { RESUME_SERVICE_URL, VIDEO_SERVICE_URL, AUDIO_SERVICE_URL } = require('../config/services');
 
 const router = express.Router();
 
@@ -23,9 +24,9 @@ router.get('/status', asyncHandler(async (req, res) => {
       geminiAPI: 'configured',
       awsS3: s3Status.success ? 'connected' : 'error',
       pythonServices: {
-        nlpService: process.env.PYTHON_NLP_SERVICE_URL || 'not configured',
-        videoAnalysis: process.env.PYTHON_VIDEO_SERVICE_URL || 'not configured',
-        audioAnalysis: process.env.PYTHON_AUDIO_SERVICE_URL || 'not configured'
+        nlpService: RESUME_SERVICE_URL || 'not configured',
+        videoAnalysis: VIDEO_SERVICE_URL || 'not configured',
+        audioAnalysis: AUDIO_SERVICE_URL || 'not configured'
       }
     },
     s3Details: s3Status

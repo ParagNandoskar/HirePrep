@@ -15,8 +15,8 @@
     "docker:logs": "docker-compose logs -f",
     "docker:local": "docker-compose -f docker-compose.local.yml up -d",
     "python:nlp": "cd nlp-service && python app.py",
-    "python:video": "cd python-services && python video_analysis.py",
-    "python:audio": "cd python-services && python audio_analysis.py",
+    "python:video": "cd video-service && python app.py",
+    "python:audio": "cd audio-service && python app.py",
     "lint": "echo 'ESLint not configured yet'",
     "format": "echo 'Prettier not configured yet'"
   },

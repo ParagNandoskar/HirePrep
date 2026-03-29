@@ -1,7 +1,5 @@
 const axios = require('axios'); // For NLP service communication
-const FormData = require('form-data');
-
-const PYTHON_NLP_SERVICE_URL = process.env.PYTHON_NLP_SERVICE_URL || 'http://localhost:5001'; // Python NLP microservice URL
+const { RESUME_SERVICE_URL, MICROSERVICE_TIMEOUT_MS, withMicroserviceTimeout } = require('../config/services');
 
 // Function to delegate resume parsing to Python NLP service
 async function parseResumeWithPythonNLP(resumeUrl, candidateId = null) {
@@ -14,12 +12,11 @@ async function parseResumeWithPythonNLP(resumeUrl, candidateId = null) {
     };
     
     // Call Python NLP service with JSON payload
-    const response = await axios.post(`${PYTHON_NLP_SERVICE_URL}/parse-resume`, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      timeout: 90000, // 90 second timeout (increased from 30s for complex NLP processing)
-    });
+    const response = await axios.post(
+      `${RESUME_SERVICE_URL}/parse-resume`,
+      payload,
+      withMicroserviceTimeout(MICROSERVICE_TIMEOUT_MS)
+    );
     
     if (response.data.success) {
       return response.data.extractedData;
@@ -28,7 +25,7 @@ async function parseResumeWithPythonNLP(resumeUrl, candidateId = null) {
     }
   } catch (error) {
     console.error('Error calling Python NLP service:', error.message);
-    throw new Error(`Python NLP service unavailable: ${error.message}`);
+    return null;
   }
 }
 
@@ -41,13 +38,20 @@ class ResumeParserService {
       throw new Error('Resume URL is required for NLP service parsing');
     }
 
-    console.log('Attempting Python NLP service...');
+    console.log('Attempting resume NLP microservice...');
     const pythonData = await parseResumeWithPythonNLP(resumeUrl, candidateId);
-    console.log('Python NLP service parsing successful');
+    if (pythonData) {
+      console.log('Resume NLP microservice parsing successful');
+      return {
+        ...pythonData,
+        _parsingMethod: 'python_service'
+      };
+    }
 
+    console.warn('Resume NLP microservice unavailable, using fallback parsed structure');
     return {
-      ...pythonData,
-      _parsingMethod: 'python_service'
+      ...this.createMinimalParsedData(''),
+      _parsingMethod: 'fallback_minimal'
     };
   }
 
