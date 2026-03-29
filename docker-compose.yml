@@ -4,7 +4,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       PORT: 5000
       REDIS_ENABLED: "true"
@@ -21,6 +22,7 @@ services:
       - redis
       - nlp-service
       - audio-service
+    restart: always
     networks:
       - hireprep-network
 
@@ -29,12 +31,12 @@ services:
       context: ./backend/nlp-service
       dockerfile: Dockerfile
     env_file:
-      - ./backend/nlp-service/.env
+      - path: ./backend/nlp-service/.env
+        required: false
     environment:
       PORT: 8000
       FLASK_ENV: production
-    ports:
-      - "8000:8000"
+    restart: always
     networks:
       - hireprep-network
 
@@ -43,19 +45,18 @@ services:
       context: ./backend/audio-service
       dockerfile: Dockerfile
     env_file:
-      - ./backend/audio-service/.env
+      - path: ./backend/audio-service/.env
+        required: false
     environment:
       AUDIO_SERVICE_PORT: 8001
-    ports:
-      - "8001:8001"
+    restart: always
     networks:
       - hireprep-network
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
+    restart: always
     networks:
       - hireprep-network
 
