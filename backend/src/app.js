@@ -71,9 +71,16 @@ const corsOptions = {
     }
     
     // Parse CORS_ORIGIN from .env
-    const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000')
+    const defaultCorsOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'https://hireprepplatfrom-fmy77ezr6-durvesh-roges-projects.vercel.app',
+    ].join(',');
+    const allowedOrigins = (process.env.CORS_ORIGIN || defaultCorsOrigins)
       .split(',')
-      .map((o) => o.trim());
+      .map((o) => o.trim())
+      .filter(Boolean);
 
     // Allow any localhost/127.0.0.1 origins in development
     if (process.env.NODE_ENV !== 'production' && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
