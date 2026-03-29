@@ -5,10 +5,9 @@ import StudentSidebar from '../components/dashboard/StudentSidebar'
 import { useAuth } from '../context/AuthContext'
 import { useApp } from '../context/AppContext'
 import { resumeAPI } from '../services/api'
+import { API_ORIGIN } from '../services/apiConfig'
 
-// Get API base URL for constructing full URLs
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-const BASE_URL = API_BASE_URL.replace('/api', '')
+const BASE_URL = API_ORIGIN
 
 const ResumeManagement = () => {
   const { user } = useAuth()
