@@ -63,6 +63,34 @@ app.use(xssClean());
 // ============================================
 // CORS CONFIGURATION
 // ============================================
+const developmentCorsOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+];
+
+const envCorsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const frontendUrlOrigin = (process.env.FRONTEND_URL || '').trim();
+
+const allowedOrigins = [...new Set([
+  ...(process.env.NODE_ENV === 'production' ? [] : developmentCorsOrigins),
+  ...envCorsOrigins,
+  ...(frontendUrlOrigin ? [frontendUrlOrigin] : []),
+])];
+
+const vercelProjectSlugs = (
+  process.env.CORS_VERCEL_PROJECTS ||
+  process.env.CORS_VERCEL_PROJECT ||
+  ''
+)
+  .split(',')
+  .map((slug) => slug.trim())
+  .filter(Boolean);
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, curl)
@@ -70,29 +98,8 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // Parse CORS_ORIGIN from .env
-    const defaultCorsOrigins = [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173',
-      'https://hireprepplatfrom.vercel.app',
-      'https://hireprepplatfrom-fmy77ezr6-durvesh-roges-projects.vercel.app',
-    ].join(',');
-    const allowedOrigins = (process.env.CORS_ORIGIN || defaultCorsOrigins)
-      .split(',')
-      .map((o) => o.trim())
-      .filter(Boolean);
-
-    const vercelProjectSlugs = (
-      process.env.CORS_VERCEL_PROJECTS ||
-      process.env.CORS_VERCEL_PROJECT ||
-      'hireprepplatfrom,hire-prep'
-    )
-      .split(',')
-      .map((slug) => slug.trim())
-      .filter(Boolean);
-
     const isVercelProjectOrigin =
+      vercelProjectSlugs.length > 0 &&
       origin.endsWith('.vercel.app') &&
       vercelProjectSlugs.some(
         (slug) =>
