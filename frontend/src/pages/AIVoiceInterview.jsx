@@ -53,6 +53,7 @@ const AIVoiceInterview = () => {
   const [soundChecked, setSoundChecked] = useState(false)
   const [tabSwitchCount, setTabSwitchCount] = useState(0)
   const [appSwitchCount, setAppSwitchCount] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const cameraInitializedRef = useRef(false)
   const lastVisibilitySwitchAtRef = useRef(0)
   const lastBlurSwitchAtRef = useRef(0)
@@ -126,17 +127,16 @@ const AIVoiceInterview = () => {
   }, [])
 
   useEffect(() => {
-    const requestFullscreen = async () => {
-      try {
-        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-          await document.documentElement.requestFullscreen()
-        }
-      } catch (err) {
-        console.warn('Fullscreen request was blocked:', err)
-      }
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
     }
 
-    requestFullscreen()
+    handleFullscreenChange()
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
   }, [])
 
   useEffect(() => {
@@ -204,9 +204,40 @@ const AIVoiceInterview = () => {
     }
   }, [interviewStarted, isAISpeaking, isListening, isTranscribing])
 
+  const ensureFullscreen = async () => {
+    if (document.fullscreenElement) {
+      return true
+    }
+
+    const targetElement = document.documentElement
+    const request =
+      targetElement.requestFullscreen ||
+      targetElement.webkitRequestFullscreen ||
+      targetElement.msRequestFullscreen
+
+    if (!request) {
+      setError('Fullscreen is not supported in this browser. Please use a supported browser to continue.')
+      return false
+    }
+
+    try {
+      await request.call(targetElement)
+      return Boolean(document.fullscreenElement)
+    } catch (err) {
+      console.warn('Fullscreen request was blocked:', err)
+      setError('You must allow fullscreen mode to start the interview.')
+      return false
+    }
+  }
+
   const startInterviewSession = async () => {
     if (!stream) {
       setError('Camera and microphone permissions are required before starting.')
+      return
+    }
+
+    const fullscreenEnabled = await ensureFullscreen()
+    if (!fullscreenEnabled) {
       return
     }
 
@@ -754,7 +785,7 @@ const AIVoiceInterview = () => {
                   disabled={!stream}
                   className="mt-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-linear-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_10px_22px_rgba(37,99,235,0.35)]"
                 >
-                  Start Interview
+                  {isFullscreen ? 'Start Interview' : 'Enter Fullscreen & Start Interview'}
                 </button>
               </div>
             </div>
