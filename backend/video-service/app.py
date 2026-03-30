@@ -451,7 +451,18 @@ class VideoAnalyzer:
     # compared to OpenCV Haar Cascades which only provided bounding boxes.
 
 analyzer = VideoAnalyzer()
-
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        'message': 'Video Service Running ✅',
+        'service': 'video-analysis-ml',
+        'status': 'active',
+        'available_endpoints': [
+            '/health',
+            '/analyze-video'
+        ]
+    })
+    
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'service': 'video-analysis-ml'})

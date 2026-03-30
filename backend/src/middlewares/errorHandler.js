@@ -39,6 +39,15 @@ const errorHandler = (err, req, res, next) => {
     return errorResponse(res, 'Too many files or unexpected field name', 400);
   }
 
+  // Body parser payload limit errors
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return errorResponse(
+      res,
+      'Request payload too large. Reduce media chunk size or send media in smaller chunks.',
+      413
+    );
+  }
+
   // Custom application errors
   if (err.statusCode) {
     return errorResponse(res, err.message, err.statusCode);

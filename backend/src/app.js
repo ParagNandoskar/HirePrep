@@ -82,6 +82,32 @@ const allowedOrigins = [...new Set([
   ...(frontendUrlOrigin ? [frontendUrlOrigin] : []),
 ])];
 
+const extractVercelProjectSlug = (originUrl) => {
+  try {
+    const hostname = new URL(originUrl).hostname;
+    if (!hostname.endsWith('.vercel.app')) {
+      return null;
+    }
+
+    const subdomain = hostname.replace('.vercel.app', '');
+    const parts = subdomain.split('-');
+
+    // Production URLs are often "<project>-<hash>.vercel.app".
+    if (parts.length > 1) {
+      parts.pop();
+      return parts.join('-');
+    }
+
+    return subdomain;
+  } catch (error) {
+    return null;
+  }
+};
+
+const inferredVercelProjectSlugs = allowedOrigins
+  .map(extractVercelProjectSlug)
+  .filter(Boolean);
+
 const vercelProjectSlugs = (
   process.env.CORS_VERCEL_PROJECTS ||
   process.env.CORS_VERCEL_PROJECT ||
@@ -91,6 +117,11 @@ const vercelProjectSlugs = (
   .map((slug) => slug.trim())
   .filter(Boolean);
 
+const resolvedVercelProjectSlugs = [...new Set([
+  ...vercelProjectSlugs,
+  ...inferredVercelProjectSlugs,
+])];
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, curl)
@@ -98,14 +129,20 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    const isVercelProjectOrigin =
-      vercelProjectSlugs.length > 0 &&
-      origin.endsWith('.vercel.app') &&
-      vercelProjectSlugs.some(
-        (slug) =>
-          origin === `https://${slug}.vercel.app` ||
-          origin.includes(`://${slug}-`)
-      );
+    let isVercelProjectOrigin = false;
+    if (resolvedVercelProjectSlugs.length > 0) {
+      try {
+        const hostname = new URL(origin).hostname;
+        if (hostname.endsWith('.vercel.app')) {
+          const subdomain = hostname.replace('.vercel.app', '');
+          isVercelProjectOrigin = resolvedVercelProjectSlugs.some(
+            (slug) => subdomain === slug || subdomain.startsWith(`${slug}-`)
+          );
+        }
+      } catch (error) {
+        isVercelProjectOrigin = false;
+      }
+    }
 
     // Allow any localhost/127.0.0.1 origins in development
     if (process.env.NODE_ENV !== 'production' && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
@@ -149,8 +186,9 @@ app.use(cors(corsOptions));
 // ============================================
 // BODY PARSING MIDDLEWARE
 // ============================================
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const requestBodyLimit = process.env.REQUEST_BODY_LIMIT || '50mb';
+app.use(express.json({ limit: requestBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
 
 // ============================================
 // GLOBAL RATE LIMITING
