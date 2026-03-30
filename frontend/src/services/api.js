@@ -97,15 +97,16 @@ export const apiService = {
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ message: 'Request failed' }))
+          const serverMessage = errorData?.message || errorData?.error
           
           // Don't log 404 errors for resume endpoints as they're expected when no resume exists
           const isResumeNotFound = response.status === 404 && endpoint.includes('/resumes')
           
           if (!isResumeNotFound) {
-            console.error('API request failed:', errorData.message || `HTTP error! status: ${response.status}`)
+            console.error('API request failed:', serverMessage || `HTTP error! status: ${response.status}`)
           }
           
-          const error = new Error(errorData.message || `HTTP error! status: ${response.status}`)
+          const error = new Error(serverMessage || `HTTP error! status: ${response.status}`)
           error.status = response.status
           throw error
         }

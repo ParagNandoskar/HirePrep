@@ -358,37 +358,50 @@ exports.completeInterview = async (req, res) => {
       }
 
       const candidateUserId = req.user?._id || req.user?.id || null;
-      const mockInterview = await MockInterview.create({
-        candidateId: candidateUserId,
-        sessionId,
-        jobContext: {
-          jobTitle: context?.jobTitle || 'Practice Interview',
-          companyName: context?.companyName || 'HirePrep',
-          description: context?.description || '',
-          requiredSkills: context?.requiredSkills || []
+      if (!candidateUserId) {
+        return res.status(401).json({ error: 'Candidate authentication required to save mock interview results' });
+      }
+
+      // Upsert by sessionId so completion stays idempotent across retries/re-submissions.
+      const mockInterview = await MockInterview.findOneAndUpdate(
+        { sessionId },
+        {
+          $set: {
+            candidateId: candidateUserId,
+            jobContext: {
+              jobTitle: context?.jobTitle || 'Practice Interview',
+              companyName: context?.companyName || 'HirePrep',
+              description: context?.description || '',
+              requiredSkills: context?.requiredSkills || []
+            },
+            questionsAnswered,
+            transcript,
+            analysis: {
+              overallScore: analysis.overallScore,
+              contentScore: analysis.contentScore,
+              communicationScore: analysis.communicationScore,
+              technicalScore: analysis.technicalScore,
+              problemSolvingScore: analysis.problemSolvingScore,
+              culturalFitScore: analysis.culturalFitScore,
+              behavioralScore: analysis.behavioralScore,
+              videoScore: analysis.videoScore,
+              audioScore: analysis.audioScore,
+              strengths: analysis.strengths || [],
+              improvements: analysis.improvements || [],
+              insights: analysis.insights || '',
+              recommendation: analysis.recommendation || '',
+              behavioralInsights: analysis.behavioralInsights || {},
+              proctoring: analysis.proctoring || {},
+              integrityWarning: analysis.integrityWarning || ''
+            },
+            completedAt: new Date()
+          },
+          $setOnInsert: {
+            sessionId
+          }
         },
-        questionsAnswered,
-        transcript,
-        analysis: {
-          overallScore: analysis.overallScore,
-          contentScore: analysis.contentScore,
-          communicationScore: analysis.communicationScore,
-          technicalScore: analysis.technicalScore,
-          problemSolvingScore: analysis.problemSolvingScore,
-          culturalFitScore: analysis.culturalFitScore,
-          behavioralScore: analysis.behavioralScore,
-          videoScore: analysis.videoScore,
-          audioScore: analysis.audioScore,
-          strengths: analysis.strengths || [],
-          improvements: analysis.improvements || [],
-          insights: analysis.insights || '',
-          recommendation: analysis.recommendation || '',
-          behavioralInsights: analysis.behavioralInsights || {},
-          proctoring: analysis.proctoring || {},
-          integrityWarning: analysis.integrityWarning || ''
-        },
-        completedAt: new Date()
-      });
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
 
       analysis.mockInterviewId = mockInterview._id;
     }
