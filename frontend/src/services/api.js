@@ -15,18 +15,32 @@ const isTransientNetworkError = (error) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+const fetchWithTimeout = async (url, config, timeoutMs = 12000) => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(url, {
+      ...config,
+      signal: controller.signal
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 const fetchWithRetry = async (url, config, retries = 1, retryDelayMs = 600) => {
   let lastError
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      return await fetch(url, config)
+      return await fetchWithTimeout(url, config, 12000)
     } catch (error) {
       lastError = error
       if (attempt === retries || !isTransientNetworkError(error)) {
         throw error
       }
-      await sleep(retryDelayMs)
+      await sleep(retryDelayMs * (attempt + 1))
     }
   }
 
@@ -68,7 +82,8 @@ export const apiService = {
     // Create the request promise and cache it to prevent duplicates
     const requestPromise = (async () => {
       try {
-        const response = await fetchWithRetry(url, config, 1, 700)
+        const retries = (config.method || 'GET').toUpperCase() === 'GET' ? 3 : 1
+        const response = await fetchWithRetry(url, config, retries, 700)
         
         // Handle 401 response first
         if (response.status === 401) {
@@ -182,7 +197,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetchWithRetry(url, config, 1, 700)
+      const response = await fetchWithRetry(url, config, 2, 700)
       
       if (response.status === 401) {
         // FIX: Removed direct window.location redirect. AuthContext handles this.
