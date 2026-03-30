@@ -120,6 +120,7 @@ const corsOptions = {
   allowedHeaders: [
     'Content-Type',
     'Authorization',
+    'ngrok-skip-browser-warning',
     'X-Requested-With',
     'Accept',
     'Origin',

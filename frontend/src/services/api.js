@@ -8,6 +8,8 @@ const getCacheKey = (endpoint, options) => {
   return `${endpoint}_${JSON.stringify(options || {})}`
 }
 
+const isNgrokUrl = (url) => /https:\/\/[a-z0-9-]+\.ngrok-free\.dev/i.test(String(url || ''))
+
 const isTransientNetworkError = (error) => {
   const message = String(error?.message || '').toLowerCase()
   return error?.name === 'TypeError' || message.includes('failed to fetch') || message.includes('networkerror')
@@ -70,6 +72,10 @@ export const apiService = {
         ...(token && { Authorization: `Bearer ${token}` }),
         ...options.headers
       },
+    }
+
+    if (isNgrokUrl(url)) {
+      config.headers['ngrok-skip-browser-warning'] = 'true'
     }
 
     // Set Content-Type header ONLY if a JSON body is present and not an upload
@@ -194,6 +200,10 @@ export const apiService = {
       },
       body: formData,
       ...options
+    }
+
+    if (isNgrokUrl(url)) {
+      config.headers['ngrok-skip-browser-warning'] = 'true'
     }
 
     try {

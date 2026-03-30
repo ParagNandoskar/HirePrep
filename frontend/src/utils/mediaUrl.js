@@ -1,6 +1,7 @@
 import { API_ORIGIN } from '../services/apiConfig'
 
 const ABSOLUTE_URL_PATTERN = /^https?:\/\//i
+const NGROK_PATTERN = /^https:\/\/[a-z0-9-]+\.ngrok-free\.dev/i
 
 const trimLeadingSlash = (value) => value.replace(/^\/+/, '')
 
@@ -15,6 +16,11 @@ export const resolveMediaUrl = (url) => {
   }
 
   if (ABSOLUTE_URL_PATTERN.test(normalized)) {
+    if (NGROK_PATTERN.test(normalized) && !normalized.includes('ngrok-skip-browser-warning=true')) {
+      const separator = normalized.includes('?') ? '&' : '?'
+      return `${normalized}${separator}ngrok-skip-browser-warning=true`
+    }
+
     // Avoid mixed-content errors when frontend is served on HTTPS.
     if (
       typeof window !== 'undefined' &&
