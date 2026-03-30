@@ -3,7 +3,23 @@ const trimTrailingSlash = (value) => value.replace(/\/+$/, '');
 const rawApiUrl = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '').trim();
 const defaultDevApiOrigin = 'http://localhost:5000';
 
-const apiOrigin = rawApiUrl || (import.meta.env.DEV ? defaultDevApiOrigin : '');
+const normalizeApiOrigin = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof window !== 'undefined' && window.location?.protocol === 'https:' && value.startsWith('http://')) {
+    const host = value.slice('http://'.length).split('/')[0] || '';
+    const isLocalHost = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+    if (!isLocalHost) {
+      return `https://${value.slice('http://'.length)}`;
+    }
+  }
+
+  return value;
+};
+
+const apiOrigin = normalizeApiOrigin(rawApiUrl || (import.meta.env.DEV ? defaultDevApiOrigin : ''));
 const normalizedApiOrigin = apiOrigin ? trimTrailingSlash(apiOrigin) : '';
 
 const withApiSuffix = (baseUrl) => {

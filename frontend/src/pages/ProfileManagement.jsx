@@ -5,6 +5,7 @@ import StudentSidebar from '../components/dashboard/StudentSidebar'
 import Button from '../components/ui/Button'
 import { candidatesAPI, resumeAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { resolveMediaUrl } from '../utils/mediaUrl'
 
 const ProfileManagement = () => {
   const { user, updateUser, isLoading: authLoading } = useAuth()
@@ -32,7 +33,7 @@ const ProfileManagement = () => {
   const [newSkill, setNewSkill] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [profileImage, setProfileImage] = useState(user?.profileImage || null)
+  const [profileImage, setProfileImage] = useState(resolveMediaUrl(user?.profileImage) || null)
   const [isSyncing, setIsSyncing] = useState(false) // Prevent multiple sync calls
   const [isUploadingImage, setIsUploadingImage] = useState(false) // Profile image upload state
   const [hasAttemptedAutoSync, setHasAttemptedAutoSync] = useState(false) // Prevent infinite auto-sync loops
@@ -128,7 +129,7 @@ const ProfileManagement = () => {
             })
             
             // Set profile image from auth context
-            setProfileImage(user.profileImage || null)
+            setProfileImage(resolveMediaUrl(user.profileImage) || null)
             
             if (user.skills && Array.isArray(user.skills)) {
               const skillsArray = user.skills.map(skill => 
@@ -178,7 +179,7 @@ const ProfileManagement = () => {
             bio: profile.profileSummary || ''
           })
           
-          setProfileImage(profile.profileImage || null)
+          setProfileImage(resolveMediaUrl(profile.profileImage) || null)
 
           // Update skills
           if (profile.skills && Array.isArray(profile.skills) && profile.skills.length > 0) {
@@ -291,18 +292,19 @@ const ProfileManagement = () => {
       
       // Handle both direct response and nested data response
       const profileImageUrl = response?.profileImage || response?.data?.profileImage;
+      const resolvedProfileImageUrl = resolveMediaUrl(profileImageUrl)
       
-      if (profileImageUrl) {
+      if (resolvedProfileImageUrl) {
         // Update local state
-        setProfileImage(profileImageUrl)
+        setProfileImage(resolvedProfileImageUrl)
         
         // Update auth context
-        updateUser({ profileImage: profileImageUrl })
+        updateUser({ profileImage: resolvedProfileImageUrl })
         
         // Also update formData to ensure consistency
         setFormData(prev => ({
           ...prev,
-          profileImage: profileImageUrl
+          profileImage: resolvedProfileImageUrl
         }));
       } else {
         throw new Error('Upload response missing profile image URL')

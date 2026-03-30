@@ -75,6 +75,7 @@ const corsOptions = {
       'http://localhost:5173',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
+      'https://hireprepplatfrom.vercel.app',
       'https://hireprepplatfrom-fmy77ezr6-durvesh-roges-projects.vercel.app',
     ].join(',');
     const allowedOrigins = (process.env.CORS_ORIGIN || defaultCorsOrigins)
@@ -82,12 +83,29 @@ const corsOptions = {
       .map((o) => o.trim())
       .filter(Boolean);
 
+    const vercelProjectSlugs = (
+      process.env.CORS_VERCEL_PROJECTS ||
+      process.env.CORS_VERCEL_PROJECT ||
+      'hireprepplatfrom,hire-prep'
+    )
+      .split(',')
+      .map((slug) => slug.trim())
+      .filter(Boolean);
+
+    const isVercelProjectOrigin =
+      origin.endsWith('.vercel.app') &&
+      vercelProjectSlugs.some(
+        (slug) =>
+          origin === `https://${slug}.vercel.app` ||
+          origin.includes(`://${slug}-`)
+      );
+
     // Allow any localhost/127.0.0.1 origins in development
     if (process.env.NODE_ENV !== 'production' && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin) || isVercelProjectOrigin) {
       callback(null, true);
     } else if (process.env.NODE_ENV !== 'production') {
       // Fallback for non-listed development origins

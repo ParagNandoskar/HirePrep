@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { HiMenu, HiX, HiSearch, HiChevronDown, HiLogout, HiUser } from 'react-icons/hi'
 import { useAuth } from '../../context/AuthContext'
 import { candidatesAPI } from '../../services/api'
+import { resolveMediaUrl } from '../../utils/mediaUrl'
 
 const DashboardLayout = ({ children, sidebarContent, userType = 'student', focusMode = false, hideSidebar = false }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -13,7 +14,8 @@ const DashboardLayout = ({ children, sidebarContent, userType = 'student', focus
   const navigate = useNavigate()
   const dropdownRef = useRef(null)
 
-  const profileImageUrl = user?.profileImage || user?.profile?.profileImage || user?.avatar || ''
+  const rawProfileImageUrl = user?.profileImage || user?.profile?.profileImage || user?.avatar || ''
+  const profileImageUrl = resolveMediaUrl(rawProfileImageUrl)
   const userInitial = user?.name?.charAt(0) || user?.firstName?.charAt(0) || user?.email?.charAt(0) || 'U'
 
   const toggleSidebar = () => {

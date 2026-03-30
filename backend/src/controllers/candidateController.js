@@ -7,6 +7,21 @@ const { successResponse, errorResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
 const { deleteFromS3, extractFileKeyFromUrl, getSignedFileUrl } = require('../config/aws');
 
+const getPublicBaseUrl = (req) => {
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL.replace(/\/+$/, '');
+  }
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || req.protocol || 'http')
+    .toString()
+    .split(',')[0]
+    .trim();
+
+  const host = req.get('host');
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+};
+
 // Get candidate profile
 const getProfile = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -370,7 +385,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 
   if (req.isLocalUpload) {
     // Local upload - construct URL for serving static files
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const baseUrl = getPublicBaseUrl(req);
     profileImageUrl = `${baseUrl}/uploads/profile-images/${req.file.filename}`;
     profileImageKey = req.file.filename; // Store filename for local deletion
   } else {

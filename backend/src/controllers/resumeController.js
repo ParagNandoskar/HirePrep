@@ -8,6 +8,21 @@ const fs = require('fs').promises; // Use promises version for async/await
 const path = require('path');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 
+const getPublicBaseUrl = (req) => {
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL.replace(/\/+$/, '');
+  }
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || req.protocol || 'http')
+    .toString()
+    .split(',')[0]
+    .trim();
+
+  const host = req.get('host');
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+};
+
 // Storage configuration
 const STORAGE_TYPE = process.env.STORAGE_TYPE || 's3';
 const LOCAL_UPLOAD_DIR = process.env.LOCAL_UPLOAD_DIR || 'uploads';
@@ -31,8 +46,8 @@ const uploadResume = asyncHandler(async (req, res) => {
     // Generate secure URL for Python service
     let secureUrl;
     if (STORAGE_TYPE === 'local') {
-      // Construct full localhost URL for Python service to access
-      const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      // Construct public URL that works behind reverse proxies/tunnels
+      const baseUrl = getPublicBaseUrl(req);
       secureUrl = `${baseUrl}/uploads/resumes/${fileKey}`;
     } else {
       // Generate pre-signed URL for S3 (6 minutes expiration)

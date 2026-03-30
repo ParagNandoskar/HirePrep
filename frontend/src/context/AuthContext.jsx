@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react'
 import { authAPI, candidatesAPI } from '../services/api'
+import { resolveMediaUrl } from '../utils/mediaUrl'
 
 const AuthContext = createContext()
 
@@ -70,7 +71,7 @@ export const AuthProvider = ({ children }) => {
         gender: profile.gender || baseUser.gender,
         currentRole: profile.currentRole || baseUser.currentRole,
         profileSummary: profile.profileSummary || baseUser.profileSummary,
-        profileImage: profile.profileImage || baseUser.profileImage,
+        profileImage: resolveMediaUrl(profile.profileImage || baseUser.profileImage),
         skills: Array.isArray(profile.skills) ? profile.skills : (baseUser.skills || []),
         subscription: profile.subscription || baseUser.subscription,
         profile
@@ -187,7 +188,8 @@ export const AuthProvider = ({ children }) => {
                 isVerified: authUser.isVerified,
                 avatar: authUser.avatar,
                 name: authUser.name || savedUser?.name,
-                profile: savedUser?.profile || authUser.profile
+                profile: savedUser?.profile || authUser.profile,
+                profileImage: resolveMediaUrl(savedUser?.profileImage || authUser?.profileImage || authUser?.avatar)
               }
               
               // Update saved user data with merged data
