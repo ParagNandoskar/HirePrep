@@ -1,29 +1,17 @@
-# Use Node.js 18 LTS
-FROM node:18-slim
+FROM node:20-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy dependency manifests first for better Docker layer caching.
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (includes dev deps needed when running npm run dev).
+RUN npm ci
 
-# Copy application code
+# Copy application source.
 COPY . .
 
-# Create non-root user
-RUN groupadd -r nodeapp && useradd -r -g nodeapp nodeapp
-RUN chown -R nodeapp:nodeapp /app
-USER nodeapp
-
-# Expose port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
-
-# Start the application
-CMD ["npm", "start"]
+# Runtime environment variables are provided via docker-compose env_file/environment.
+CMD ["node", "server.js"]

@@ -133,10 +133,22 @@ wheels/
 *.egg
 
 # Virtual environments
+captured_frames/
 venv/
 ENV/
 env/
 .env
+
+# ML/AI Models - Do not push large model files
+*.h5
+*.task
+*.pth
+*.onnx
+*.pb
+*.tflite
+python-services/deepface_home/
+python-services/services/video_service/models/
+python-services/audio_service/local_models/
 
 # Docker
 .docker/
@@ -150,3 +162,7 @@ env/
 # Test files
 test-results/
 coverage/
+
+
+/backend/scripts/test-comprehensive.ps1
+/backend/scripts/

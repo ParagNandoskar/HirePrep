@@ -11,8 +11,12 @@ const resumeSchema = new mongoose.Schema({
     required: true
   },
   fileUrl: {
-    type: String, // Cloudinary URL
+    type: String, // S3 URL (formerly Cloudinary URL)
     required: true
+  },
+  fileKey: {
+    type: String, // S3 object key for deletion
+    required: false // Optional for backward compatibility
   },
   fileType: {
     type: String,

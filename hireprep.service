@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# PM2 Startup Script for Production (EC2)
+# Save this as: /etc/systemd/system/hireprep.service
+
+[Unit]
+Description=HirePrep Backend API Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/srv/hireprep
+ExecStart=/usr/local/bin/pm2 start ecosystem.config.js --env production
+ExecReload=/usr/local/bin/pm2 reload ecosystem.config.js --env production
+ExecStop=/usr/local/bin/pm2 stop ecosystem.config.js
+
+# Auto-restart service if it crashes
+Restart=always
+RestartSec=10
+
+# Environment file
+EnvironmentFile=-/srv/hireprep/.env
+
+# Increase file descriptors
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

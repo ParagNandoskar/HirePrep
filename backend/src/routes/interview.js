@@ -7,7 +7,10 @@ const {
   analyzeAudio,
   finishInterview,
   getInterviewHistory,
-  cancelInterview
+  cancelInterview,
+  generateAIQuestions,
+  submitScreeningInterview,
+  getJobLeaderboard
 } = require('../controllers/interviewController');
 const { authenticate, authorize } = require('../middlewares/authMiddleware');
 const { validate, interviewStartValidation, interviewAnalysisValidation } = require('../middlewares/validation');
@@ -19,7 +22,7 @@ router.use(authenticate);
 
 // Interview management routes
 router.post('/start', authorize('student'), validate(interviewStartValidation), startInterview);
-router.get('/:interviewId', getInterview); // Accessible by student or company
+router.get('/:interviewId', getInterview);
 router.post('/:interviewId/cancel', authorize('student'), cancelInterview);
 router.post('/:interviewId/finish', authorize('student'), finishInterview);
 
@@ -30,5 +33,10 @@ router.post('/:interviewId/analyze-audio', authorize('student'), analyzeAudio);
 
 // History and reporting routes
 router.get('/history/my-interviews', authorize('student'), getInterviewHistory);
+
+// Screening interview routes
+router.post('/screening/generate-questions', generateAIQuestions);
+router.post('/screening/:applicationId/submit', authorize('student'), submitScreeningInterview);
+router.get('/screening/leaderboard/:jobId', getJobLeaderboard);
 
 module.exports = router;

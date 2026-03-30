@@ -1,4 +1,5 @@
-const { calculateResumeJobMatch, calculateInterviewScore, calculateFinalScore, calculatePercentile } = require('../utils/scoring');
+// REMOVED: calculateResumeJobMatch import (Now in Python NLP service)
+const { calculateInterviewScore, calculateFinalScore, calculatePercentile } = require('../utils/scoring');
 const Resume = require('../models/Resume');
 const Interview = require('../models/Interview');
 const Leaderboard = require('../models/Leaderboard');
@@ -99,12 +100,16 @@ class LeaderboardService {
     };
 
     try {
-      // Resume-Job Match Score
-      if (resume.parsedData && job.requirements) {
-        scores.resumeMatchScore = calculateResumeJobMatch(
-          resume.parsedData.skills,
-          job.requirements.skills
+      // Resume-Job Match Score - now comes from Python NLP service analysis
+      if (resume.parsedData && resume.parsedData.jobMatchScores) {
+        // Use pre-calculated job match score from Python NLP service
+        const jobMatchScore = resume.parsedData.jobMatchScores.find(score => 
+          score.jobId.toString() === job._id.toString()
         );
+        scores.resumeMatchScore = jobMatchScore ? jobMatchScore.overall : 0;
+      } else {
+        // Fallback: use a basic calculation if no Python NLP scores available
+        scores.resumeMatchScore = 50; // Default neutral score
       }
 
       // Video Analysis Score
@@ -328,39 +333,96 @@ class LeaderboardService {
   }
 
   // Get leaderboard with full details
-  async getLeaderboardWithDetails(jobId, page = 1, limit = 50) {
+  async getLeaderboardWithDetails(jobId, page = 1, limit = 100) {
     try {
-      const leaderboard = await Leaderboard.findOne({ jobId })
-        .populate('jobId')
-        .populate({
-          path: 'candidates.studentId',
-          select: 'name email profile avatar'
-        })
-        .populate({
-          path: 'candidates.resumeId',
-          select: 'parsedData.personalInfo parsedData.skills parsedData.experience'
-        });
+      // Generate leaderboard on-the-fly from Application data
+      const Application = require('../models/Application');
+      const Job = require('../models/Job');
 
-      if (!leaderboard) {
-        throw new Error('Leaderboard not found');
+      // Get the job details
+      const job = await Job.findById(jobId).populate('companyId', 'companyName');
+      if (!job) {
+        throw new Error('Job not found');
       }
+
+      // Get all completed applications for this job
+      const applications = await Application.find({
+        jobId: jobId,
+        interviewCompleted: true,
+        screeningScore: { $exists: true, $ne: null }
+      })
+        .populate('candidateId', 'name email profile avatar')
+        .sort({ screeningScore: -1 }) // Sort by score descending
+        .lean();
+
+      console.log(`📊 Found ${applications.length} completed interviews for job ${jobId}`);
+
+      if (applications.length === 0) {
+        // Return empty leaderboard instead of throwing error
+        return {
+          jobId: job,
+          totalCandidates: 0,
+          averageScore: 0,
+          topPercentile: [],
+          top10Recommended: [],
+          candidates: [],
+          lastUpdated: new Date(),
+          pagination: {
+            current: page,
+            total: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        };
+      }
+
+      // Calculate average score
+      const totalScore = applications.reduce((sum, app) => sum + (app.screeningScore || 0), 0);
+      const averageScore = totalScore / applications.length;
+
+      // Map applications to candidate format with rankings
+      const candidates = applications.map((app, index) => ({
+        _id: app._id,
+        studentId: app.candidateId,
+        rank: index + 1,
+        scores: {
+          overallScore: app.screeningScore,
+          technicalScore: app.aiAnalysis?.scores?.technical || 0,
+          communicationScore: app.aiAnalysis?.scores?.communication || 0,
+          problemSolvingScore: app.aiAnalysis?.scores?.problemSolving || 0,
+          culturalFitScore: app.aiAnalysis?.scores?.culturalFit || 0
+        },
+        percentile: ((applications.length - index) / applications.length) * 100,
+        status: app.status,
+        interviewDate: app.interviewCompletedAt,
+        isTopPerformer: index < 10, // Mark top 10 as recommended to company
+        isRecommendedToCompany: index < 10 // Explicit flag for company
+      }));
+
+      // Get top 10% for top percentile
+      const topPercentileCount = Math.max(1, Math.ceil(applications.length * 0.1));
+      const topPercentile = candidates.slice(0, topPercentileCount);
+      
+      // Get top 10 recommended candidates for company
+      const top10Recommended = candidates.slice(0, 10);
 
       // Paginate results
       const startIndex = (page - 1) * limit;
       const endIndex = startIndex + limit;
-      const paginatedCandidates = leaderboard.candidates.slice(startIndex, endIndex);
+      const paginatedCandidates = candidates.slice(startIndex, endIndex);
 
       return {
-        jobId: leaderboard.jobId,
-        totalCandidates: leaderboard.totalCandidates,
-        averageScore: leaderboard.averageScore,
-        topPercentile: leaderboard.topPercentile,
+        jobId: job,
+        totalCandidates: applications.length,
+        averageScore: Math.round(averageScore * 100) / 100,
+        topPercentile,
+        top10Recommended, // Top 10 candidates recommended to company
         candidates: paginatedCandidates,
-        lastUpdated: leaderboard.lastUpdated,
+        lastUpdated: new Date(),
         pagination: {
           current: page,
-          total: Math.ceil(leaderboard.totalCandidates / limit),
-          hasNext: endIndex < leaderboard.totalCandidates,
+          total: Math.ceil(applications.length / limit),
+          hasNext: endIndex < applications.length,
           hasPrev: page > 1
         }
       };

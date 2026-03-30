@@ -1,70 +1,70 @@
 const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const connectDB = require('./src/config/database');
+const { loadSecrets } = require('./src/config/secrets');
+const { REDIS_ENABLED, checkRedisHealth } = require('./src/config/redis');
 const app = require('./src/app');
+const path = require('path');
 
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Start server with secrets loading
+async function startServer() {
+  try {
+    // Load secrets from AWS Secrets Manager in production
+    if (process.env.NODE_ENV === 'production' && process.env.USE_AWS_SECRETS === 'true') {
+      console.log('🔐 Loading secrets from AWS Secrets Manager...');
+      const secrets = await loadSecrets();
+      
+      if (secrets) {
+        // Override environment variables with secrets
+        process.env.JWT_SECRET = secrets.JWT_SECRET;
+        process.env.JWT_REFRESH_SECRET = secrets.JWT_REFRESH_SECRET;
+        process.env.MONGODB_URI = secrets.MONGODB_URI;
+        process.env.GEMINI_API_KEY = secrets.GEMINI_API_KEY;
+        process.env.AWS_ACCESS_KEY_ID = secrets.AWS_ACCESS_KEY_ID;
+        process.env.AWS_SECRET_ACCESS_KEY = secrets.AWS_SECRET_ACCESS_KEY;
+        process.env.REDIS_PASSWORD = secrets.REDIS_PASSWORD;
+      }
+    }
+
+    // Connect to database
+    await connectDB();
+    
+    // Start background job workers only when Redis queueing is enabled and healthy.
+    if (process.env.ENABLE_WORKERS !== 'false') {
+      if (!REDIS_ENABLED) {
+        console.log('ℹ️  Workers disabled because REDIS_ENABLED=false');
+      } else {
+        const redisHealthy = await checkRedisHealth();
+        if (!redisHealthy) {
+          console.warn('⚠️  Workers not started because Redis is unavailable');
+        } else {
+          try {
+            require('./src/services/worker');
+            console.log('✅ Background job workers started');
+          } catch (error) {
+            console.warn('⚠️  Failed to start workers:', error.message);
+            console.log('   Continuing without workers. Run "npm run workers" in a separate terminal for background jobs.');
+          }
+        }
+      }
+    }
+    
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔐 Security: ${process.env.USE_AWS_SECRETS === 'true' ? 'AWS Secrets Manager' : 'Environment Variables'}`);
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
   }
-});
+}
 
-const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB
-connectDB();
-
-// Socket.IO connection handling for real-time interview
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-
-  // Join interview room
-  socket.on('joinInterview', (interviewId) => {
-    socket.join(`interview_${interviewId}`);
-    console.log(`User ${socket.id} joined interview ${interviewId}`);
-  });
-
-  // Handle real-time interview messages
-  socket.on('interviewMessage', (data) => {
-    socket.to(`interview_${data.interviewId}`).emit('interviewMessage', data);
-  });
-
-  // Handle WebRTC signaling
-  socket.on('offer', (data) => {
-    socket.to(`interview_${data.interviewId}`).emit('offer', data);
-  });
-
-  socket.on('answer', (data) => {
-    socket.to(`interview_${data.interviewId}`).emit('answer', data);
-  });
-
-  socket.on('ice-candidate', (data) => {
-    socket.to(`interview_${data.interviewId}`).emit('ice-candidate', data);
-  });
-
-  // Handle video/audio analysis data
-  socket.on('analysisData', (data) => {
-    socket.to(`interview_${data.interviewId}`).emit('analysisUpdate', data);
-  });
-
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-});
-
-// Make io accessible to routes
-app.set('io', io);
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+// Start the server
+startServer();

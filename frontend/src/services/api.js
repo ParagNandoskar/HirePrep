@@ -8,6 +8,31 @@ const getCacheKey = (endpoint, options) => {
   return `${endpoint}_${JSON.stringify(options || {})}`
 }
 
+const isTransientNetworkError = (error) => {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.name === 'TypeError' || message.includes('failed to fetch') || message.includes('networkerror')
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const fetchWithRetry = async (url, config, retries = 1, retryDelayMs = 600) => {
+  let lastError
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(url, config)
+    } catch (error) {
+      lastError = error
+      if (attempt === retries || !isTransientNetworkError(error)) {
+        throw error
+      }
+      await sleep(retryDelayMs)
+    }
+  }
+
+  throw lastError
+}
+
 // API service functions
 export const apiService = {
   // Generic request method
@@ -43,7 +68,7 @@ export const apiService = {
     // Create the request promise and cache it to prevent duplicates
     const requestPromise = (async () => {
       try {
-        const response = await fetch(url, config)
+        const response = await fetchWithRetry(url, config, 1, 700)
         
         // Handle 401 response first
         if (response.status === 401) {
@@ -83,7 +108,12 @@ export const apiService = {
                                 (error.message?.includes('404') && endpoint.includes('/resumes'))
         
         if (!isResumeNotFound) {
-          console.error('API request failed:', error)
+          console.error('API request failed:', {
+            endpoint,
+            url,
+            method: config.method || 'GET',
+            message: error?.message
+          })
         }
         throw error
       } finally {
@@ -152,7 +182,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(url, config)
+      const response = await fetchWithRetry(url, config, 1, 700)
       
       if (response.status === 401) {
         // FIX: Removed direct window.location redirect. AuthContext handles this.
@@ -167,7 +197,11 @@ export const apiService = {
       
       return await response.json()
     } catch (error) {
-      console.error('File upload failed:', error)
+      console.error('File upload failed:', {
+        endpoint,
+        url,
+        message: error?.message
+      })
       throw error
     }
   }
