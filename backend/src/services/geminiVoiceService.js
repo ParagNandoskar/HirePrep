@@ -802,7 +802,7 @@ Rules:
    */
   async generateFinalAnalysis(sessionId, proctoringStats = {}) {
     try {
-      const context = this.activeInterviews.get(sessionId);
+      const context = await this.getSessionContext(sessionId);
 
       // ── 1. Aggregate video + audio scores from MongoDB ──────────────────
       const behavioralAgg = await interviewAggregationService.aggregateFinalScores(sessionId);
