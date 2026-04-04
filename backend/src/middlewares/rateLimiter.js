@@ -87,16 +87,16 @@ const apiLimiter = createLimiter({
 
 /**
  * Strict rate limiter for authentication endpoints
- * 5 attempts per 15 minutes
+ * 5 attempts per 1 minute
  */
 const authLimiter = createLimiter({
   prefix: 'rl:auth:',
-  windowMs: 15 * 60 * 1000,
+  windowMs: 1 * 60 * 1000,
   max: 5,
   skip: () => DISABLED,
   message: {
     success: false,
-    error: 'Too many login attempts, please try again after 15 minutes.',
+    error: 'Too many login attempts, please try again after 1 minute.',
   },
 });
 

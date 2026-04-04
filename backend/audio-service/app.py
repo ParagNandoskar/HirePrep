@@ -11,9 +11,15 @@ Optional future support:
 """
 
 import os
+import sys
 import logging
 from flask import Flask
 from flask_cors import CORS
+
+# Ensure local package imports work no matter where the process is launched from.
+SERVICE_DIR = os.path.dirname(os.path.abspath(__file__))
+if SERVICE_DIR not in sys.path:
+    sys.path.insert(0, SERVICE_DIR)
 
 # Configure logging
 logging.basicConfig(

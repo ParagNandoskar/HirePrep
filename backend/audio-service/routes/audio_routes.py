@@ -6,12 +6,18 @@ ZERO-STORAGE VERSION - No ML models, pure signal processing
 
 import logging
 import os
+import sys
 import base64
 import numpy as np
 import librosa
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from typing import Dict
+
+# Ensure sibling package imports (analyzers/) resolve from any launch directory.
+SERVICE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if SERVICE_DIR not in sys.path:
+    sys.path.insert(0, SERVICE_DIR)
 
 from analyzers.voice_analyzer import get_voice_analyzer
 from analyzers.filler_detector import get_filler_detector
@@ -39,6 +45,22 @@ def create_audio_routes() -> Blueprint:
             filler_detector = get_filler_detector()
         
         return voice_analyzer, filler_detector
+
+    def _to_json_safe(value):
+        """Recursively convert numpy values to native Python JSON-safe types."""
+        if isinstance(value, dict):
+            return {k: _to_json_safe(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_to_json_safe(v) for v in value]
+        if isinstance(value, tuple):
+            return [_to_json_safe(v) for v in value]
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        return value
     
     @audio_bp.route('/health', methods=['GET'])
     def health_check():
@@ -175,7 +197,7 @@ def create_audio_routes() -> Blueprint:
             logger.info(f"   Processing Time: {request_time:.2f}s")
             logger.info("#"*60 + "\n")
             
-            return jsonify(response)
+            return jsonify(_to_json_safe(response))
             
         except Exception as e:
             logger.error(f"❌ Error in analyze_audio: {e}", exc_info=True)
@@ -226,8 +248,19 @@ def create_audio_routes() -> Blueprint:
             (audio_array, sample_rate) or (None, None) on error
         """
         try:
+            if not audio_base64:
+                logger.error("❌ Empty audio_base64 payload")
+                return None, None
+
+            # Some clients may send data URLs; keep only the base64 segment.
+            if isinstance(audio_base64, str) and ',' in audio_base64 and 'base64' in audio_base64[:64]:
+                audio_base64 = audio_base64.split(',', 1)[1]
+
             # Decode base64
             audio_bytes = base64.b64decode(audio_base64)
+            if not audio_bytes:
+                logger.error("❌ Decoded audio bytes are empty")
+                return None, None
             
             # Save to temp file for librosa
             import tempfile
@@ -237,7 +270,7 @@ def create_audio_routes() -> Blueprint:
             # WebM starts with \x1a\x45\xdf\xa3 (EBML tag)
             is_webm = audio_bytes[:4] == b'\x1a\x45\xdf\xa3'
             suffix = '.webm' if is_webm else '.wav'
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as temp_file:
                 temp_path = temp_file.name
                 temp_file.write(audio_bytes)
             
@@ -250,7 +283,7 @@ def create_audio_routes() -> Blueprint:
             return audio_array, sample_rate
             
         except Exception as e:
-            logger.error(f"❌ Audio decode error: {e}")
+            logger.error(f"❌ Audio decode error: {repr(e)}")
             return None, None
     
     return audio_bp

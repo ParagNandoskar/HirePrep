@@ -47,6 +47,8 @@ const AIVoiceInterview = () => {
   const [audioChunks, setAudioChunks] = useState([])
   const frameIntervalRef = useRef(null)
   const audioChunksRef = useRef([])
+  const finalAudioBase64Ref = useRef('')
+  const finalAudioBlobRef = useRef(null)
   const canvasRef = useRef(null)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [isSpeechMuted, setIsSpeechMuted] = useState(false)
@@ -540,13 +542,28 @@ const AIVoiceInterview = () => {
     setVideoFrames([])
     setAudioChunks([])
     audioChunksRef.current = []
+    finalAudioBase64Ref.current = ''
+    finalAudioBlobRef.current = null
     recordedChunksRef.current = []
     
     try {
+      const audioTracks = stream.getAudioTracks()
+      if (!audioTracks || audioTracks.length === 0) {
+        console.warn('⚠️ [Audio] No audio tracks found in stream')
+        return
+      }
+
+      const audioOnlyStream = new MediaStream(audioTracks)
+
       // Start MediaRecorder for audio chunks
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp8,opus'
-      })
+      let mediaRecorder
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mediaRecorder = new MediaRecorder(audioOnlyStream, {
+          mimeType: 'audio/webm;codecs=opus'
+        })
+      } else {
+        mediaRecorder = new MediaRecorder(audioOnlyStream)
+      }
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -563,9 +580,30 @@ const AIVoiceInterview = () => {
       }
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
+        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+        finalAudioBlobRef.current = blob
         setVideoRecordings(prev => [...prev, blob])
-        setAudioChunks(audioChunksRef.current)
+
+        // Build one finalized base64 payload from the complete recording.
+        // This is more reliable for backend/audio-service decoding than chunk concatenation.
+        if (blob.size > 0) {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+            const base64Audio = dataUrl.includes(',') ? dataUrl.split(',')[1] : ''
+
+            if (base64Audio) {
+              finalAudioBase64Ref.current = base64Audio
+              audioChunksRef.current = [base64Audio]
+              setAudioChunks([base64Audio])
+              console.log(`🎤 [Audio] Finalized payload size: ${(base64Audio.length / 1024).toFixed(1)}KB`)
+            } else {
+              console.warn('⚠️ [Audio] Could not extract finalized base64 payload')
+            }
+          }
+          reader.readAsDataURL(blob)
+        }
+
         recordedChunksRef.current = []
       }
 
@@ -645,7 +683,30 @@ const AIVoiceInterview = () => {
     }
 
     try {
-      console.log(`📊 [Submit] Sending answer with ${videoFrames.length} frames and ${audioChunksRef.current.length} audio chunks to backend`)
+      let audioPayload = finalAudioBase64Ref.current
+        ? [finalAudioBase64Ref.current]
+        : []
+
+      // If FileReader completion raced with submit, recover from finalized blob.
+      if (!audioPayload.length && finalAudioBlobRef.current && finalAudioBlobRef.current.size > 0) {
+        const recoveredBase64 = await new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+            resolve(dataUrl.includes(',') ? dataUrl.split(',')[1] : '')
+          }
+          reader.readAsDataURL(finalAudioBlobRef.current)
+        })
+
+        if (recoveredBase64) {
+          finalAudioBase64Ref.current = recoveredBase64
+          audioPayload = [recoveredBase64]
+          setAudioChunks(audioPayload)
+          console.log(`🎤 [Audio] Recovered finalized payload at submit: ${(recoveredBase64.length / 1024).toFixed(1)}KB`)
+        }
+      }
+
+      console.log(`📊 [Submit] Sending answer with ${videoFrames.length} frames and ${audioPayload.length} audio chunks to backend`)
       
       // Submit answer with behavioral data to backend
       const submitResponse = await geminiVoiceService.submitAnswer(
@@ -653,7 +714,7 @@ const AIVoiceInterview = () => {
         answerText,
         currentQuestion,         // persist the question text for context reconstruction
         videoFrames,
-        audioChunksRef.current,  // use ref — always current, not affected by async state lag
+        audioPayload,
         questionNumber,
         user?._id
       )
@@ -667,6 +728,8 @@ const AIVoiceInterview = () => {
       setInterimTranscript('')
       setVideoFrames([])
       setAudioChunks([])
+      finalAudioBase64Ref.current = ''
+      finalAudioBlobRef.current = null
       setError(null)
 
       // Dynamic completion decision comes from backend AI assessment.

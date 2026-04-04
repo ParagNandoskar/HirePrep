@@ -495,7 +495,10 @@ def analyze_video_endpoint():
         # Analyze valid frames
         logger.info("🎬 Starting frame-by-frame analysis...")
         frame_analyses = []
+        total_frames = len(video_frames)
         for idx, frame in enumerate(video_frames, 1):
+            if idx == 1 or idx == total_frames or idx % 5 == 0:
+                logger.info(f"   Processing frame {idx}/{total_frames}")
             res = analyzer.analyze_frame(frame)
             if res:
                 frame_analyses.append(res)
