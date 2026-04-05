@@ -51,6 +51,7 @@
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^6.10.0",
     "form-data": "^4.0.0",
+    "google-auth-library": "^10.6.2",
     "helmet": "^7.0.0",
     "ioredis": "^5.9.2",
     "joi": "^17.9.2",

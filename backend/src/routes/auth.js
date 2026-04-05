@@ -2,6 +2,7 @@ const express = require('express');
 const { 
   register, 
   login, 
+  googleAuth,
   refreshAccessToken, 
   getProfile, 
   updateProfile, 
@@ -14,6 +15,7 @@ const {
   validate, 
   registerValidation, 
   loginValidation,
+  googleAuthValidation,
   updateProfileValidation,
   changePasswordValidation 
 } = require('../middlewares/validation');
@@ -23,6 +25,7 @@ const router = express.Router();
 // Public routes
 router.post('/register', validate(registerValidation), register);
 router.post('/login', validate(loginValidation), login);
+router.post('/google', validate(googleAuthValidation), googleAuth);
 router.post('/refresh-token', refreshAccessToken);
 
 // Protected routes

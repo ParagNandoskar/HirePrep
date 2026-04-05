@@ -135,6 +135,27 @@ const loginValidation = Joi.object({
 })
   .strict(); // Don't allow unknown fields
 
+// Google OAuth validation
+const googleAuthValidation = Joi.object({
+  idToken: Joi.string()
+    .required()
+    .messages({
+      'any.required': 'Google ID token is required',
+    }),
+  role: Joi.string()
+    .valid('student', 'company', 'candidate', 'employer')
+    .optional(),
+  mode: Joi.string()
+    .valid('login', 'signup')
+    .required()
+    .messages({
+      'any.only': 'Mode must be either login or signup',
+      'any.required': 'Mode is required',
+    }),
+  profile: Joi.object().unknown(true).optional(),
+})
+  .strict();
+
 // Profile update validation
 const updateProfileValidation = Joi.object({
   name: Joi.string().trim().min(2).max(100).optional(),
@@ -250,6 +271,7 @@ module.exports = {
   validate,
   registerValidation,
   loginValidation,
+  googleAuthValidation,
   updateProfileValidation,
   changePasswordValidation,
   jobValidation,

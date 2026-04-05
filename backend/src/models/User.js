@@ -16,8 +16,20 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
+    required: function requiredPassword() {
+      return this.authProvider === 'local';
+    },
     minlength: 6
+  },
+  authProvider: {
+    type: String,
+    enum: ['local', 'google'],
+    default: 'local'
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true
   },
   role: {
     type: String,
@@ -52,6 +64,7 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
+  if (!this.password) return next();
   if (!this.isModified('password')) return next();
   
   try {
@@ -65,6 +78,7 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false;
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

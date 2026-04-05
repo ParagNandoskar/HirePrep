@@ -1,13 +1,14 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'  // ✅ FIXED: added useLocation import
 import { HiEye, HiEyeOff } from 'react-icons/hi'
 import Button from '../components/ui/Button'
+import GoogleAuthButton from '../components/auth/GoogleAuthButton'
 import { useAuth } from '../context/AuthContext'
 
 const Login = () => {
   const navigate = useNavigate()
   const location = useLocation() // ✅ now properly imported
-  const { login, isLoading } = useAuth()
+  const { login, googleAuth, isLoading } = useAuth()
   
   const [userType, setUserType] = useState('candidate') // 'candidate' or 'company'
   const [formData, setFormData] = useState({
@@ -87,6 +88,24 @@ const Login = () => {
       console.error('Login error:', errorMessage)
     }
   }
+
+  const handleGoogleCredential = useCallback(async (idToken) => {
+    try {
+      const result = await googleAuth({
+        idToken,
+        role: userType === 'candidate' ? 'candidate' : 'company',
+        mode: 'login'
+      })
+
+      if (result.success) {
+        const from = location.state?.from?.pathname ||
+          (result.user.role === 'candidate' ? '/student-dashboard' : '/employer-dashboard')
+        navigate(from, { replace: true })
+      }
+    } catch (error) {
+      console.error('Google login error:', error)
+    }
+  }, [googleAuth, location.state?.from?.pathname, navigate, userType])
 
   return (
     <div className="min-h-screen bg-background-secondary flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -244,6 +263,21 @@ const Login = () => {
               >
                 {isLoading ? 'Logging in...' : 'Login'}
               </Button>
+
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-background-secondary" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-3 text-text-muted">or continue with</span>
+                </div>
+              </div>
+
+              <GoogleAuthButton
+                mode="login"
+                onCredential={handleGoogleCredential}
+                disabled={isLoading}
+              />
 
               {/* Sign Up Link */}
               <div className="text-center">

@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { HiEye, HiEyeOff } from 'react-icons/hi'
 import Button from '../components/ui/Button'
+import GoogleAuthButton from '../components/auth/GoogleAuthButton'
 import { useAuth } from '../context/AuthContext'
 
 const SignUp = () => {
   const navigate = useNavigate()
-  const { register, isLoading } = useAuth()
+  const { register, googleAuth, isLoading } = useAuth()
   
   const [userType, setUserType] = useState('candidate') // 'candidate' or 'company'
   const [formData, setFormData] = useState({
@@ -153,6 +154,30 @@ const SignUp = () => {
       console.error('Registration error:', errorMessage)
     }
   }
+
+  const handleGoogleCredential = useCallback(async (idToken) => {
+    try {
+      const result = await googleAuth({
+        idToken,
+        role: userType === 'candidate' ? 'candidate' : 'company',
+        mode: 'signup',
+        profile: userType === 'company'
+          ? {
+              companyName: formData.companyName || undefined,
+              industry: formData.industry || undefined,
+              companySize: formData.companySize || undefined
+            }
+          : undefined
+      })
+
+      if (result.success) {
+        const dashboardPath = result.user.role === 'candidate' ? '/student-dashboard' : '/employer-dashboard'
+        navigate(dashboardPath, { replace: true })
+      }
+    } catch (error) {
+      console.error('Google signup error:', error)
+    }
+  }, [formData.companyName, formData.companySize, formData.industry, googleAuth, navigate, userType])
 
   return (
     <div className="min-h-screen bg-background-secondary flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -450,6 +475,21 @@ const SignUp = () => {
               >
                 {isLoading ? 'Creating Account...' : 'Sign Up'}
               </Button>
+
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-background-secondary" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-3 text-text-muted">or continue with</span>
+                </div>
+              </div>
+
+              <GoogleAuthButton
+                mode="signup"
+                onCredential={handleGoogleCredential}
+                disabled={isLoading}
+              />
 
               {/* Login Link (omitted for brevity) */}
               <div className="text-center">

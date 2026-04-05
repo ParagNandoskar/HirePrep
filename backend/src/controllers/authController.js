@@ -2,6 +2,46 @@ const User = require('../models/User');
 const { generateToken, generateRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 const { successResponse, errorResponse } = require('../utils/helpers');
 const { asyncHandler } = require('../middlewares/errorHandler');
+const { OAuth2Client } = require('google-auth-library');
+
+const googleOAuthClient = new OAuth2Client();
+
+const roleMapping = {
+  candidate: 'student',
+  employer: 'company',
+  student: 'student',
+  company: 'company'
+};
+
+const frontendRoleMapping = {
+  student: 'candidate',
+  company: 'employer'
+};
+
+const mapToFrontendUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: frontendRoleMapping[user.role] || user.role,
+  profile: user.profile,
+  avatar: user.avatar,
+  isVerified: user.isVerified,
+  createdAt: user.createdAt
+});
+
+const getGoogleAudiences = () => {
+  const fromEnv = [
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_OAUTH_CLIENT_ID,
+    process.env.GOOGLE_AUTH_CLIENT_ID,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(','))
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return [...new Set(fromEnv)];
+};
 
 // Register user (student or company)
 const register = asyncHandler(async (req, res) => {
@@ -25,12 +65,6 @@ const register = asyncHandler(async (req, res) => {
   }
 
   // Map frontend roles to backend roles
-  const roleMapping = {
-    'candidate': 'student',
-    'employer': 'company',
-    'student': 'student',
-    'company': 'company'
-  };
   const mappedRole = roleMapping[role] || role;
 
   // Create user
@@ -50,22 +84,8 @@ const register = asyncHandler(async (req, res) => {
   const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 
   // Map backend roles back to frontend format for response
-  const frontendRoleMapping = {
-    'student': 'candidate',
-    'company': 'employer'
-  };
-  const frontendRole = frontendRoleMapping[user.role] || user.role;
-
   return successResponse(res, {
-    user: {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: frontendRole, // Return frontend-expected role
-      profile: user.profile,
-      avatar: user.avatar,
-      createdAt: user.createdAt
-    },
+    user: mapToFrontendUser(user),
     token,
     refreshToken
   }, 'User registered successfully', 201);
@@ -81,6 +101,10 @@ const login = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Invalid email or password', 401);
   }
 
+  if (!user.password) {
+    return errorResponse(res, 'This account uses Google sign-in. Please continue with Google.', 400);
+  }
+
   // Check password
   const isPasswordValid = await user.comparePassword(password);
   if (!isPasswordValid) {
@@ -91,27 +115,98 @@ const login = asyncHandler(async (req, res) => {
   const token = generateToken({ id: user._id, role: user.role });
   const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
 
-  // Map backend roles back to frontend format for response
-  const frontendRoleMapping = {
-    'student': 'candidate',
-    'company': 'employer'
-  };
-  const frontendRole = frontendRoleMapping[user.role] || user.role;
-
   return successResponse(res, {
-    user: {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: frontendRole, // Return frontend-expected role
-      profile: user.profile,
-      avatar: user.avatar,
-      isVerified: user.isVerified,
-      createdAt: user.createdAt
-    },
+    user: mapToFrontendUser(user),
     token,
     refreshToken
   }, 'Login successful');
+});
+
+// Google OAuth login/signup
+const googleAuth = asyncHandler(async (req, res) => {
+  const { idToken, role, mode, profile } = req.body;
+
+  const audience = getGoogleAudiences();
+  if (audience.length === 0) {
+    return errorResponse(res, 'Google OAuth is not configured on server', 500);
+  }
+
+  let payload;
+  try {
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken,
+      audience,
+    });
+    payload = ticket.getPayload();
+  } catch (error) {
+    return errorResponse(res, 'Invalid Google token', 401);
+  }
+
+  if (!payload?.email || !payload?.sub) {
+    return errorResponse(res, 'Unable to read Google account details', 400);
+  }
+
+  if (payload.email_verified !== true) {
+    return errorResponse(res, 'Google account email is not verified', 400);
+  }
+
+  const email = String(payload.email).toLowerCase();
+  const mappedRole = roleMapping[role] || 'student';
+  const googleName = payload.name || profile?.name || 'Google User';
+
+  let user = await User.findOne({ email });
+
+  if (mode === 'signup' && user) {
+    return errorResponse(res, 'User with this email already exists', 400);
+  }
+
+  if (mode === 'login' && !user) {
+    return errorResponse(res, 'No account found for this Google email. Please sign up first.', 404);
+  }
+
+  if (!user) {
+    user = new User({
+      name: googleName,
+      email,
+      role: mappedRole,
+      authProvider: 'google',
+      googleId: payload.sub,
+      isVerified: true,
+      avatar: payload.picture || null,
+      profile: profile || {}
+    });
+    await user.save();
+  } else {
+    let shouldSave = false;
+
+    if (!user.googleId) {
+      user.googleId = payload.sub;
+      shouldSave = true;
+    }
+
+    if (user.authProvider !== 'google' && !user.password) {
+      user.authProvider = 'google';
+      shouldSave = true;
+    }
+
+    if (!user.avatar && payload.picture) {
+      user.avatar = payload.picture;
+      shouldSave = true;
+    }
+
+    if (shouldSave) {
+      await user.save();
+    }
+  }
+
+  const token = generateToken({ id: user._id, role: user.role });
+  const refreshToken = generateRefreshToken({ id: user._id, role: user.role });
+
+  return successResponse(res, {
+    user: mapToFrontendUser(user),
+    token,
+    refreshToken
+  }, 'Google authentication successful');
 });
 
 // Refresh access token
@@ -150,19 +245,12 @@ const getProfile = asyncHandler(async (req, res) => {
     return errorResponse(res, 'User not found', 404);
   }
 
-  // Map backend roles back to frontend format for response
-  const frontendRoleMapping = {
-    'student': 'candidate',
-    'company': 'employer'
-  };
-  const frontendRole = frontendRoleMapping[user.role] || user.role;
-
   return successResponse(res, {
     user: {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: frontendRole, // Return frontend-expected role
+      role: frontendRoleMapping[user.role] || user.role,
       profile: user.profile,
       avatar: user.avatar,
       isVerified: user.isVerified,
@@ -300,6 +388,7 @@ const getUserStats = asyncHandler(async (req, res) => {
 module.exports = {
   register,
   login,
+  googleAuth,
   refreshAccessToken,
   getProfile,
   updateProfile,

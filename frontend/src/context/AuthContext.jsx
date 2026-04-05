@@ -333,6 +333,40 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const googleAuth = async ({ idToken, role, mode, profile }) => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true })
+
+      const response = await authAPI.googleAuth({
+        idToken,
+        role,
+        mode,
+        profile
+      })
+
+      if (response.success) {
+        authAPI.setToken(response.data.token)
+        authAPI.setUser(response.data.user)
+
+        dispatch({
+          type: 'LOGIN_SUCCESS',
+          payload: {
+            user: response.data.user,
+            token: response.data.token
+          }
+        })
+
+        const enrichedUser = await hydrateCandidateProfile(response.data.user)
+        return { success: true, user: enrichedUser }
+      }
+
+      throw new Error(response.message || 'Google authentication failed')
+    } catch (error) {
+      dispatch({ type: 'SET_LOADING', payload: false })
+      throw error
+    }
+  }
+
   const logout = () => {
     console.log('🚪 Logging out user...')
     authAPI.removeToken()
@@ -354,6 +388,7 @@ export const AuthProvider = ({ children }) => {
     ...state,
     login,
     register,
+    googleAuth,
     logout,
     updateUser,
     isCandidate: state.user?.role === 'candidate',
