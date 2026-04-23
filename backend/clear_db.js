@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://***REMOVED***:***REMOVED***@cluster0.kxdlj.mongodb.net/Hireprep?retryWrites=true&w=majority&appName=Cluster0';
+const mongoUri = process.env.MONGODB_URI;
 
 async function clearDatabase() {
   try {
@@ -37,3 +37,4 @@ async function clearDatabase() {
 }
 
 clearDatabase();
+
