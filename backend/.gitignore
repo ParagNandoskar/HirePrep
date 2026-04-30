@@ -166,3 +166,4 @@ coverage/
 
 /backend/scripts/test-comprehensive.ps1
 /backend/scripts/
+/backend/src/scripts/

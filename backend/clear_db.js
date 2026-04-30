@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 
 const mongoUri = process.env.MONGODB_URI;
 
+if (!mongoUri) {
+  console.error('Missing required environment variable: MONGODB_URI');
+  process.exit(1);
+}
+
 async function clearDatabase() {
   try {
     console.log('Connecting to MongoDB...');
