@@ -43,8 +43,12 @@ const Login = () => {
       newErrors.email = 'Please enter a valid email'
     }
 
+    // On login require password presence and basic strength check
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
     if (!formData.password) {
       newErrors.password = 'Password is required'
+    } else if (!passwordRegex.test(formData.password)) {
+      newErrors.password = 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character'
     }
 
     setErrors(newErrors)

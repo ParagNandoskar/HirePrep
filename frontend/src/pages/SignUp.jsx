@@ -60,8 +60,11 @@ const SignUp = () => {
 
     if (userType === 'candidate') {
       // Full Name validation for candidates
+      const nameRegex = /^[A-Za-z\s'\-]{2,}$/
       if (!formData.fullName.trim()) {
         newErrors.fullName = 'Full name is required'
+      } else if (!nameRegex.test(formData.fullName.trim())) {
+        newErrors.fullName = 'Please enter a valid name (letters, spaces, apostrophes, hyphens only)'
       }
     } else {
       // Company specific validations
@@ -84,11 +87,12 @@ const SignUp = () => {
       newErrors.email = 'Please enter a valid email'
     }
 
-    // Password validation
+    // Password validation - require mixed case, number and special char, min length
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
     if (!formData.password) {
       newErrors.password = 'Password is required'
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters'
+    } else if (!passwordRegex.test(formData.password)) {
+      newErrors.password = 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character'
     }
 
     // Confirm Password validation
